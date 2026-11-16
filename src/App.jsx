@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { api, setToken } from './api'
+import { api, media, setToken } from './api'
 
 const fmt = (n) => Number(n || 0).toLocaleString('fr-FR') + ' F'
 
@@ -331,7 +331,7 @@ export default function App() {
                 return (
                   <div className={n ? 'tile on' : 'tile'} key={food.id} onClick={() => tap(food.id)}>
                     <div className="ph">
-                      {food.img ? <img src={food.img} alt="" /> : <span className="cam">📷</span>}
+                      {food.img ? <img src={media(food.img)} alt="" /> : <span className="cam">📷</span>}
                       <i className="badge">×{n}</i>
                       <button className="minus" type="button" aria-label="Retirer un" onClick={(e) => { e.stopPropagation(); untap(food.id) }}>−</button>
                     </div>
@@ -437,7 +437,7 @@ export default function App() {
           {foods.map((food) => (
             <div className="frow" key={food.id}>
               <label className="thumb">
-                {food.img ? <img src={food.img} alt="" /> : <>Ajouter<br />photo</>}
+                {food.img ? <img src={media(food.img)} alt="" /> : <>Ajouter<br />photo</>}
                 <input type="file" accept="image/*" hidden onChange={async (e) => {
                   const file = e.target.files?.[0]
                   e.target.value = ''

@@ -1,5 +1,14 @@
 let token = null
 
+// En dev, vide : le proxy Vite renvoie /api et /storage vers le bo local.
+// En prod, VITE_API_URL pointe vers le service Laravel (voir .env.production).
+const BASE = (import.meta.env.VITE_API_URL || '').replace(/\/+$/, '')
+
+export function media(path) {
+  if (!path || /^(https?:|data:|blob:)/.test(path)) return path
+  return BASE + path
+}
+
 export function setToken(value) {
   token = value || null
 }
@@ -17,7 +26,7 @@ async function req(url, opts = {}) {
 
   let res
   try {
-    res = await fetch(url, { method: opts.method || 'GET', headers, body })
+    res = await fetch(BASE + url, { method: opts.method || 'GET', headers, body })
   } catch {
     const err = new Error('Serveur injoignable.')
     err.status = 0
