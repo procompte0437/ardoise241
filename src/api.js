@@ -1,3 +1,4 @@
+const BASE = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '')
 let token = null
 
 export function setToken(value) {
@@ -17,7 +18,7 @@ async function req(url, opts = {}) {
 
   let res
   try {
-    res = await fetch(url, { method: opts.method || 'GET', headers, body })
+    res = await fetch(BASE + url, { method: opts.method || 'GET', headers, body })
   } catch {
     const err = new Error('Serveur injoignable.')
     err.status = 0
