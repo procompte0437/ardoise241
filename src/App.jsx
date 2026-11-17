@@ -78,6 +78,35 @@ function Secret({ ref, style, ...props }) {
   )
 }
 
+/** Icône de la fiche d'inventaire : bloc-notes coché, cartons de stock, flèches de rotation. */
+function InventoryIcon() {
+  return (
+    <svg className="invico" viewBox="0 0 64 64" aria-hidden="true">
+      <rect x="1" y="1" width="62" height="62" rx="14" fill="#F4F2EE" />
+      <path d="M22 12c8-6 20-6 27 1" fill="none" stroke="#2D3A4A" strokeWidth="3" strokeLinecap="round" />
+      <path d="M46 8l4 6-7 1" fill="none" stroke="#2D3A4A" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M42 54c-8 5-19 5-26-2" fill="none" stroke="#2D3A4A" strokeWidth="3" strokeLinecap="round" />
+      <path d="M18 57l-4-6 7-1" fill="none" stroke="#2D3A4A" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
+      <rect x="8" y="17" width="24" height="31" rx="3" fill="#C8174E" />
+      <rect x="11" y="21" width="18" height="24" rx="1.5" fill="#D9D9D9" />
+      <rect x="16" y="15" width="8" height="6" rx="1.5" fill="#EDB12E" />
+      {[26, 32, 38].map((y) => (
+        <g key={y}>
+          <path d={`M13 ${y}l2 2 3-4`} fill="none" stroke="#2D3A4A" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+          <rect x="20" y={y - 1} width="7" height="2.4" rx="1.2" fill="#1A9BC4" />
+        </g>
+      ))}
+      {[[44, 19], [44, 35]].map(([x, y]) => (
+        <g key={y}>
+          <path d={`M${x} ${y}l10 5-10 5-10-5z`} fill="#1A9BC4" />
+          <path d={`M${x - 10} ${y + 5}l10 5v10l-10-5z`} fill="#EDB12E" />
+          <path d={`M${x} ${y + 10}l10-5v10l-10 5z`} fill="#C9902A" />
+        </g>
+      ))}
+    </svg>
+  )
+}
+
 function SyncDot({ s }) {
   const sync = s.sync
   let cls = 'ok'
@@ -345,7 +374,7 @@ function Main({ s }) {
             <span className="chev">›</span>
           </button>
           <button className="hero small" type="button" onClick={() => setView('inventaire')}>
-            <span className="ico">📊</span>
+            <span className="ico"><InventoryIcon /></span>
             <span className="txt"><b>Fiche d'inventaire</b><small>{todayCash ? 'Encaissé aujourd\'hui : ' + fmt(todayCash) : 'Ventes, encaissements et articles vendus'}</small></span>
             <span className="chev">›</span>
           </button>

@@ -227,3 +227,4 @@ button.frow{width:100%;text-align:left;cursor:pointer}
 .invt .n small{display:block;font-weight:500;font-size:12px;opacity:.7}
 .invt .q{font-weight:800}
 .invt .rw.tot{background:var(--y2);font-weight:900;border-top:2px solid var(--k)}
+.invico{width:44px;height:44px;display:block}
