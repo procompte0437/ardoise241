@@ -153,11 +153,10 @@ label.btn{display:inline-block;text-align:center}
 .recap .hl b{font-size:24px;color:var(--red)}
 .recap .mut{opacity:.75}
 .field.mini{width:130px;padding:8px 10px;text-align:right}
-.day{margin-bottom:16px}
-.day h4{display:flex;justify-content:space-between;align-items:baseline;gap:10px;margin:0;padding:10px 12px;background:var(--k);color:var(--y);border-radius:12px 12px 0 0;font-family:'Baloo 2','Inter',sans-serif;font-size:18px;font-weight:700}
+.day{margin-bottom:18px}
+.day h4{display:flex;justify-content:space-between;align-items:baseline;gap:10px;margin:0 0 8px;padding:10px 12px;background:var(--k);color:var(--y);border-radius:12px;font-family:'Baloo 2','Inter',sans-serif;font-size:18px;font-weight:700}
 .day h4 small{font-family:'Inter',sans-serif;font-size:13px;opacity:.85}
-.ses{background:var(--w);border:3px solid var(--k);border-top:0;padding:10px 12px}
-.day .ses:last-child{border-radius:0 0 12px 12px}
+.ses{background:var(--w);border:3px solid var(--k);border-radius:12px;padding:10px 12px;margin-bottom:8px}
 .ses .sl{display:flex;align-items:baseline;gap:10px}
 .ses time{flex:none;font-weight:800;font-size:13px;background:var(--k);color:var(--y);border-radius:6px;padding:2px 7px;font-variant-numeric:tabular-nums}
 .ses .lab{flex:1;font-weight:700;font-size:14px}

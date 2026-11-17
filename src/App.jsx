@@ -297,8 +297,12 @@ function Main({ s }) {
     const res = await store.addSession(personUid, counts, paid)
     const who = s.people.find((p) => p.uid === personUid)
     setCounts({})
+    setCalcFor(personUid)
+    setCur(personUid)
+    setQ('')
     setModal(null)
-    toast(res.owed > 0 ? fmt(res.owed) + ' mis en bon pour ' + (who?.name || '') : 'Encaissé : ' + fmt(res.total))
+    setView('bilan')
+    toast(res.owed > 0 ? fmt(res.owed) + ' ajoutés au bilan de ' + (who?.name || '') : 'Encaissé : ' + fmt(res.total))
     return res
   }
 
@@ -377,7 +381,7 @@ function Main({ s }) {
             <button className="btn line" type="button" onClick={() => setCounts({})}>Vider</button>
             {who
               ? <button className="btn" type="button" onClick={async () => {
-                  try { await saveAsBon(who.uid, 0); setView('bilan') } catch (e) { toast(e.message) }
+                  try { await saveAsBon(who.uid, 0) } catch (e) { toast(e.message) }
                 }}>Valider</button>
               : <button className="btn" type="button" onClick={() => {
                   if (total <= 0) return toast('Touchez des images pour calculer.')
@@ -414,7 +418,7 @@ function Main({ s }) {
         <div className="pad">
           <div className="actions">
             <button className="btn dark" type="button" onClick={() => openCalc(person.uid)}>Nouvelle session (images)</button>
-            <button className="btn out" type="button" onClick={async () => { if (await needAdmin()) setModal({ type: 'pay' }) }}>Paiement</button>
+            <button className="btn out" type="button" onClick={async () => { if (await needAdmin()) setModal({ type: 'pay' }) }}>Enregistrer un paiement</button>
             <button className="btn out" type="button" onClick={async () => {
               if (!list.length) return toast('Le bilan est déjà vide.')
               const ok = await askCode({ title: 'Effacer le bilan', text: 'Le bilan de ' + person.name + ' (' + fmt(debts[person.uid]) + ') sera effacé. Entrez votre code pour confirmer.', submitLabel: 'Effacer', danger: true })

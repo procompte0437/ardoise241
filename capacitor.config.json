@@ -1,0 +1,11 @@
+{
+  "appId": "com.ardoise241.app",
+  "appName": "Lessy aimé Rodrigue",
+  "webDir": "dist",
+  "android": {
+    "backgroundColor": "#1A1612"
+  },
+  "server": {
+    "androidScheme": "https"
+  }
+}
