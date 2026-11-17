@@ -240,6 +240,10 @@ function Main({ s }) {
 
   const debts = useMemo(() => store.debts(s.entries), [s.entries])
   const owing = useMemo(() => Object.values(debts).filter((d) => d > 0), [debts])
+  const todayCash = useMemo(() => {
+    const d = new Date(); d.setHours(0, 0, 0, 0)
+    return store.inventory(d.getTime(), d.getTime() + 86400000, s.entries).received
+  }, [s.entries])
   const total = useMemo(() => s.foods.reduce((sum, f) => sum + (counts[f.uid] || 0) * f.price, 0), [s.foods, counts])
   const nbItems = Object.values(counts).reduce((a, b) => a + b, 0)
   const person = s.people.find((p) => p.uid === cur) || null
@@ -340,6 +344,11 @@ function Main({ s }) {
             <span className="txt"><b>Cahier Bon</b><small>{owing.length ? owing.length + ' client(s) · ' + fmt(owing.reduce((a, b) => a + b, 0)) + ' en bon' : 'Aucun bon en cours'}</small></span>
             <span className="chev">›</span>
           </button>
+          <button className="hero small" type="button" onClick={() => setView('inventaire')}>
+            <span className="ico">📊</span>
+            <span className="txt"><b>Fiche d'inventaire</b><small>{todayCash ? 'Encaissé aujourd\'hui : ' + fmt(todayCash) : 'Ventes, encaissements et articles vendus'}</small></span>
+            <span className="chev">›</span>
+          </button>
           <button className="linkbtn" type="button" onClick={async () => { if (await needAdmin()) setView('settings') }}>⚙ Réglages : images, prix, code, compte</button>
         </div>
       </>
@@ -434,6 +443,8 @@ function Main({ s }) {
         </div>
       </>
     )
+  } else if (view === 'inventaire') {
+    body = <Inventory s={s} back={() => setView('home')} />
   } else if (view === 'settings') {
     body = <Settings s={s} back={() => setView('home')} openFoods={() => setView('foods')} toast={toast} setModal={setModal} />
   } else if (view === 'foods') {
@@ -465,7 +476,12 @@ function Main({ s }) {
               {who
                 ? <button className="btn dark" type="button" onClick={async () => { try { await saveAsBon(who.uid, 0) } catch (e) { toast(e.message) } }}>Ajouter au bilan de {who.name}</button>
                 : <>
-                    <button className="btn out" type="button" onClick={() => { setCounts({}); setModal(null); toast('Encaissé : ' + fmt(total)) }}>Encaissé</button>
+                    <button className="btn out" type="button" onClick={async () => {
+                      try {
+                        await store.addCashSale(counts)
+                        setCounts({}); setModal(null); toast('Encaissé : ' + fmt(total) + ' (ajouté à la fiche d\'inventaire)')
+                      } catch (e) { toast(e.message) }
+                    }}>Encaissé</button>
                     <button className="btn dark" type="button" onClick={() => setModal({ type: 'pickName' })}>Mettre en bon</button>
                   </>}
             </div>
@@ -595,6 +611,96 @@ function Bilan({ entries }) {
         )
       })}
     </div>
+  )
+}
+
+const PERIODS = [
+  { key: 'today', label: "Aujourd'hui" },
+  { key: 'yesterday', label: 'Hier' },
+  { key: 'week', label: '7 jours' },
+  { key: 'month', label: '30 jours' },
+  { key: 'all', label: 'Tout' },
+]
+
+function periodRange(key) {
+  const start = new Date(); start.setHours(0, 0, 0, 0)
+  const day = 86400000
+  const t = start.getTime()
+  if (key === 'today') return [t, t + day]
+  if (key === 'yesterday') return [t - day, t]
+  if (key === 'week') return [t - 6 * day, t + day]
+  if (key === 'month') return [t - 29 * day, t + day]
+  return [0, Number.MAX_SAFE_INTEGER]
+}
+
+/** Fiche d'inventaire : calculée sur le téléphone, donc disponible hors ligne. */
+function Inventory({ s, back }) {
+  const [period, setPeriod] = useState('today')
+  const inv = useMemo(() => {
+    const [from, to] = periodRange(period)
+    return store.inventory(from, to, s.entries)
+  }, [period, s.entries])
+  const days = []
+  for (const e of inv.sales) {
+    const key = dayKey(e.at)
+    let g = days[days.length - 1]
+    if (!g || g.key !== key) { g = { key, label: dayLabel(e.at), rows: [], sum: 0 }; days.push(g) }
+    g.rows.push(e)
+    g.sum += e.amount
+  }
+  return (
+    <>
+      <header className="top">
+        <button className="back" type="button" onClick={back} aria-label="Retour">‹</button>
+        <div className="grow"><h1>Fiche d'inventaire</h1><p>Disponible hors ligne · sauvegardée en ligne</p></div>
+      </header>
+      <div className="pad">
+        <div className="periods" role="tablist">
+          {PERIODS.map((p) => (
+            <button key={p.key} type="button" role="tab" aria-selected={period === p.key} className={period === p.key ? 'on' : ''} onClick={() => setPeriod(p.key)}>{p.label}</button>
+          ))}
+        </div>
+
+        <div className="invk">
+          <div className="k main"><small>Total encaissé</small><b>{fmt(inv.received)}</b><i>ventes + paiements de bons</i></div>
+          <div className="k"><small>Ventes encaissées</small><b>{fmt(inv.cash)}</b><i>{inv.cashCount} vente(s)</i></div>
+          <div className="k"><small>Mis en bon</small><b>{fmt(inv.credit)}</b><i>{inv.creditCount} bon(s)</i></div>
+          <div className="k"><small>Paiements de bons</small><b>{fmt(inv.payments)}</b><i>{inv.paymentCount} paiement(s)</i></div>
+        </div>
+
+        <h2>Articles vendus</h2>
+        {inv.articles.length === 0 ? <div className="empty">Aucun article sur cette période.</div> : (
+          <div className="invt">
+            <div className="hd"><span>Article</span><span>Qté</span><span>Montant</span></div>
+            {inv.articles.map((a) => (
+              <div className="rw" key={a.n}>
+                <span className="n">{a.n}<small>{a.cash ? a.cash + ' encaissé(s)' : ''}{a.cash && a.credit ? ' · ' : ''}{a.credit ? a.credit + ' en bon' : ''}</small></span>
+                <span className="q">{a.q}</span>
+                <span className="m">{fmt(a.amount)}</span>
+              </div>
+            ))}
+            <div className="rw tot"><span className="n">Total</span><span className="q">{inv.articles.reduce((x, a) => x + a.q, 0)}</span><span className="m">{fmt(inv.cash + inv.credit)}</span></div>
+          </div>
+        )}
+
+        <h2>Encaissements</h2>
+        {days.length === 0 ? <div className="empty">Aucun encaissement sur cette période. Touchez « Encaissé » dans le bilan de la calculatrice pour en enregistrer.</div> : days.map((g) => (
+          <section className="day" key={g.key}>
+            <h4><span>{g.label}</span><small>{fmt(g.sum)}</small></h4>
+            {g.rows.map((e) => (
+              <div className="ses" key={e.uid}>
+                <div className="sl"><time>{hour(e.at)}</time><span className="lab">Encaissé</span><b>{fmt(e.amount)}</b></div>
+                <ul className="its">
+                  {(e.items || []).map((it, i) => (
+                    <li key={i}><span>{it.n}</span><span className="q">×{it.q}</span><span className="u">{it.p ? 'à ' + fmt(it.p) : ''}</span><span className="p">{fmt(it.p * it.q)}</span></li>
+                  ))}
+                </ul>
+              </div>
+            ))}
+          </section>
+        ))}
+      </div>
+    </>
   )
 }
 

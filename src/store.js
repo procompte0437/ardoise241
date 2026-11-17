@@ -229,10 +229,14 @@ export async function refreshAccount() {
 
 // ---------------------------------------------------------------- calculs
 
+/** « Client » réservé aux ventes encaissées tout de suite (pas de bon). */
+export const CASH = '_caisse'
+
 /** Dette de chaque client : un trop-payé ramène à 0, jamais en dessous. */
 export function debts(entries = state.entries) {
   const out = {}
   for (const e of entries) {
+    if (e.person === CASH) continue
     const cur = out[e.person] || 0
     out[e.person] = e.pay ? Math.max(0, cur - e.amount) : cur + e.amount
   }
@@ -260,7 +264,7 @@ export async function renamePerson(personUid, name) {
   await changed()
 }
 
-export async function addSession(personUid, counts, paid = 0) {
+function itemsOf(counts) {
   const items = []
   let total = 0
   for (const f of state.foods) {
@@ -271,6 +275,60 @@ export async function addSession(personUid, counts, paid = 0) {
     }
   }
   if (!items.length) throw new Error('Touchez des images pour ajouter des montants.')
+  return { items, total }
+}
+
+/** Vente payée tout de suite : gardée pour la fiche d'inventaire, sans créer de bon. */
+export async function addCashSale(counts) {
+  const { items, total } = itemsOf(counts)
+  const at = Date.now()
+  await db.put('entries', { uid: uid('c'), person: CASH, amount: total, pay: false, label: 'Encaissé', items, at, updatedAt: at, deleted: false, dirty: true })
+  await changed()
+  return { total }
+}
+
+/**
+ * Fiche d'inventaire sur une période [from, to[ (millisecondes).
+ * - ventes encaissées : « Encaissé » dans la calculatrice
+ * - crédit : bons mis sur un client
+ * - paiements : remboursements des bons (dont « Payé sur place »)
+ * - articles : tout ce qui est sorti (encaissé + en bon)
+ */
+export function inventory(from, to, entries = state.entries) {
+  const out = { cash: 0, cashCount: 0, credit: 0, creditCount: 0, payments: 0, paymentCount: 0, articles: [], sales: [] }
+  const byName = new Map()
+  for (const e of entries) {
+    if (e.at < from || e.at >= to) continue
+    if (e.pay) {
+      out.payments += e.amount
+      out.paymentCount++
+      continue
+    }
+    if (e.person === CASH) {
+      out.cash += e.amount
+      out.cashCount++
+      out.sales.push(e)
+    } else {
+      out.credit += e.amount
+      out.creditCount++
+    }
+    for (const it of e.items || []) {
+      const a = byName.get(it.n) || { n: it.n, q: 0, amount: 0, cash: 0, credit: 0 }
+      a.q += it.q
+      a.amount += it.q * it.p
+      if (e.person === CASH) a.cash += it.q
+      else a.credit += it.q
+      byName.set(it.n, a)
+    }
+  }
+  out.articles = [...byName.values()].sort((a, b) => b.amount - a.amount || b.q - a.q)
+  out.sales.sort((a, b) => b.at - a.at)
+  out.received = out.cash + out.payments
+  return out
+}
+
+export async function addSession(personUid, counts, paid = 0) {
+  const { items, total } = itemsOf(counts)
   const at = Date.now()
   const rows = [{ uid: uid('e'), person: personUid, amount: total, pay: false, label: null, items, at, updatedAt: at, deleted: false, dirty: true }]
   const cash = Math.min(total, Math.max(0, Math.round(Number(paid) || 0)))
