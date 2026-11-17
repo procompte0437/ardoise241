@@ -96,7 +96,7 @@ function Brand() {
 // ------------------------------------------------------------------ accueil sans compte
 
 function Welcome() {
-  const [mode, setMode] = useState('start')
+  const [mode, setMode] = useState('login') // l'appli s'ouvre sur la connexion
   const [phone, setPhone] = useState('')
   const [name, setName] = useState('')
   const [code, setCode] = useState('')
@@ -123,25 +123,12 @@ function Welcome() {
     }
   }
 
-  if (mode === 'start') {
-    return (
-      <div className="lockscreen">
-        <Brand />
-        <h1>Lessy aimé Rodrigue</h1>
-        <p>Votre calculatrice et votre cahier de bons, même sans internet.</p>
-        <button className="btn dark" type="button" onClick={() => setMode('register')}>Créer mon compte</button>
-        <button className="btn out" type="button" onClick={() => setMode('login')}>J'ai déjà un compte</button>
-        {!navigator.onLine && <p className="hint">La première connexion demande internet. Ensuite, l'application marche hors ligne.</p>}
-      </div>
-    )
-  }
-
   const reg = mode === 'register'
   return (
     <div className="lockscreen form">
       <Brand />
-      <h1>{reg ? 'Créer mon compte' : 'Retrouver mon compte'}</h1>
-      <p>{reg ? 'Votre numéro sert d\'identifiant. Choisissez un code d\'accès et confirmez-le.' : 'Entrez votre numéro et votre code : vos bons, vos images et vos prix reviennent sur ce téléphone.'}</p>
+      <h1>{reg ? 'Créer mon compte' : 'Connexion'}</h1>
+      <p>{reg ? 'Votre numéro sert d\'identifiant. Choisissez un code d\'accès et confirmez-le.' : "Connectez-vous une seule fois : ensuite l'application s'ouvre directement, même sans internet."}</p>
       <label className="lbl">Numéro de téléphone</label>
       <input className="field" type="tel" inputMode="tel" autoComplete="tel" placeholder="Ex : 077 12 34 56" value={phone} onChange={(e) => setPhone(e.target.value)} />
       {reg && <>
@@ -156,7 +143,11 @@ function Welcome() {
       </>}
       <div className="err">{err}</div>
       <button className="btn dark" type="button" disabled={busy} onClick={go}>{busy ? (reg ? 'Création…' : 'Restauration…') : (reg ? 'Créer mon compte' : 'Se connecter')}</button>
-      <button className="btn out" type="button" onClick={() => { setMode('start'); setErr('') }}>Retour</button>
+      <div className="switch">
+        <span>{reg ? 'Vous avez déjà un compte ?' : 'Pas encore de compte ?'}</span>
+        <button className="btn out" type="button" onClick={() => { setMode(reg ? 'login' : 'register'); setErr(''); setCode(''); setConfirm('') }}>{reg ? 'Se connecter' : 'Créer mon compte'}</button>
+      </div>
+      {!navigator.onLine && <p className="hint">La première connexion demande internet. Ensuite, l'application marche hors ligne.</p>}
     </div>
   )
 }
