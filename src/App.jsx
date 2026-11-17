@@ -650,7 +650,15 @@ function EditFood({ food, img, onClose, toast }) {
           const file = e.target.files?.[0]
           e.target.value = ''
           if (!file) return
-          try { await store.setFoodImage(food.uid, file) } catch (err) { toast(err.message) }
+          try {
+            await store.setFoodImage(food.uid, file)
+            // Le nom du fichier devient le nom de l'article (on peut le corriger avant d'enregistrer).
+            const fromFile = store.nameFromFile(file)
+            if (fromFile) {
+              setName(fromFile)
+              await store.updateFood(food.uid, { name: fromFile })
+            }
+          } catch (err) { toast(err.message) }
         }} />
       </label>
       <p>Nom :</p>

@@ -331,6 +331,13 @@ export async function setFoodImage(foodUid, file) {
 }
 
 /** Remplit les images encore sans photo, dans l'ordre (Image 1, Image 2…). */
+/** « poulet_braise.jpg » devient « Poulet braise » : nom proposé, modifiable ensuite. */
+export function nameFromFile(file) {
+  const base = String(file?.name || '').replace(/\.[^.]+$/, '').replace(/[_\-.]+/g, ' ').replace(/\s+/g, ' ').trim()
+  if (!base) return ''
+  return (base.charAt(0).toUpperCase() + base.slice(1)).slice(0, 30)
+}
+
 export async function fillPhotos(files) {
   const empty = state.foods.filter((f) => !f.imgHave)
   let n = 0
@@ -338,6 +345,8 @@ export async function fillPhotos(files) {
     const slot = empty[n]
     if (!slot) break
     await setFoodImage(slot.uid, file)
+    const name = nameFromFile(file)
+    if (name) await updateFood(slot.uid, { name })
     n++
   }
   return { added: n, skipped: files.length - n }
