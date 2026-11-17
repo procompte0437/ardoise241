@@ -234,13 +234,56 @@ export const CASH = '_caisse'
 
 /** Dette de chaque client : un trop-payé ramène à 0, jamais en dessous. */
 export function debts(entries = state.entries) {
-  const out = {}
+  const byPerson = {}
   for (const e of entries) {
     if (e.person === CASH) continue
-    const cur = out[e.person] || 0
-    out[e.person] = e.pay ? Math.max(0, cur - e.amount) : cur + e.amount
+    ;(byPerson[e.person] ||= []).push(e)
+  }
+  const out = {}
+  for (const [person, list] of Object.entries(byPerson)) {
+    out[person] = ledger(list).reduce((sum, b) => sum + b.remaining, 0)
   }
   return out
+}
+
+/**
+ * Bons d'un client avec ce qui a été payé dessus.
+ * Un paiement qui vise un bon (ref) va d'abord à ce bon ; le reste, ou un paiement
+ * sans ref, solde les bons du plus ancien au plus récent. Un trop-payé est perdu
+ * (la dette ne devient jamais négative). Même règle que le back-office.
+ *
+ * @returns {{ entry, paid, remaining, status, payments: {entry, amount}[] }[]}
+ */
+export function ledger(entries) {
+  const list = [...entries].sort((a, b) => a.at - b.at || (a.uid < b.uid ? -1 : 1))
+  const bons = []
+  const byUid = {}
+  for (const e of list) {
+    if (!e.pay) {
+      const b = { entry: e, paid: 0, remaining: e.amount, payments: [] }
+      bons.push(b)
+      byUid[e.uid] = b
+      continue
+    }
+    let left = e.amount
+    const apply = (b) => {
+      const take = Math.min(left, b.remaining)
+      if (take > 0) {
+        b.paid += take
+        b.remaining -= take
+        b.payments.push({ entry: e, amount: take })
+        left -= take
+      }
+    }
+    const target = e.ref && byUid[e.ref]
+    if (target) apply(target)
+    for (const b of bons) {
+      if (left <= 0) break
+      if (b !== target) apply(b)
+    }
+  }
+  for (const b of bons) b.status = b.remaining <= 0 ? 'paid' : b.paid > 0 ? 'partial' : 'open'
+  return bons
 }
 
 function uid(prefix) {
@@ -332,18 +375,28 @@ export async function addSession(personUid, counts, paid = 0) {
   const at = Date.now()
   const rows = [{ uid: uid('e'), person: personUid, amount: total, pay: false, label: null, items, at, updatedAt: at, deleted: false, dirty: true }]
   const cash = Math.min(total, Math.max(0, Math.round(Number(paid) || 0)))
-  if (cash > 0) rows.push({ uid: uid('e'), person: personUid, amount: cash, pay: true, label: 'Payé sur place', items: [], at: at + 1, updatedAt: at, deleted: false, dirty: true })
+  if (cash > 0) rows.push({ uid: uid('e'), person: personUid, amount: cash, pay: true, label: 'Payé sur place', ref: rows[0].uid, items: [], at: at + 1, updatedAt: at, deleted: false, dirty: true })
   await db.putMany('entries', rows)
   await changed()
   return { total, owed: total - cash }
 }
 
-export async function addPayment(personUid, amount) {
+export async function addPayment(personUid, amount, ref = null, label = 'Paiement') {
   const value = Math.round(Number(amount))
   if (!(value > 0)) throw new Error('Entrez un montant supérieur à 0.')
   const at = Date.now()
-  await db.put('entries', { uid: uid('e'), person: personUid, amount: value, pay: true, label: 'Paiement', items: [], at, updatedAt: at, deleted: false, dirty: true })
+  await db.put('entries', { uid: uid('e'), person: personUid, amount: value, pay: true, label, ref, items: [], at, updatedAt: at, deleted: false, dirty: true })
   await changed()
+}
+
+/** Paiement d'un bon précis : tout le reste (solde) ou une partie (avance). */
+export async function payBon(personUid, bonUid, amount) {
+  const bon = ledger(state.entries.filter((e) => e.person === personUid)).find((b) => b.entry.uid === bonUid)
+  if (!bon) throw new Error('Bon introuvable.')
+  const value = Math.round(Number(amount))
+  if (!(value > 0)) throw new Error('Entrez un montant supérieur à 0.')
+  if (value > bon.remaining) throw new Error('Le reste à payer de ce bon est ' + bon.remaining.toLocaleString('fr-FR') + ' F.')
+  await addPayment(personUid, value, bonUid, value === bon.remaining ? 'Bon soldé' : 'Avance')
 }
 
 export async function eraseBilan(personUid) {

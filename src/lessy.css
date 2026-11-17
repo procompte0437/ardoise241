@@ -228,3 +228,19 @@ button.frow{width:100%;text-align:left;cursor:pointer}
 .invt .q{font-weight:800}
 .invt .rw.tot{background:var(--y2);font-weight:900;border-top:2px solid var(--k)}
 .invico{width:44px;height:44px;display:block}
+
+/* --- Bons : état, paiements --- */
+.bil .periods{margin-bottom:12px}
+.ses.bon.paid{opacity:.85}
+.ses .state{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-top:10px;padding-top:8px;border-top:1px dashed rgba(26,22,18,.3)}
+.tag{display:inline-block;border-radius:999px;padding:4px 10px;font-size:13px;font-weight:800}
+.tag.ok{background:#1F7A4D;color:#fff}
+.tag.part{background:var(--y);color:var(--k)}
+.tag.no{background:var(--red);color:#fff}
+.btn.sm{padding:8px 12px;font-size:14px;border-radius:10px}
+.pays{list-style:none;margin:8px 0 0;padding:0}
+.pays li{display:grid;grid-template-columns:auto 1fr auto;gap:10px;font-size:13px;padding:3px 0;align-items:baseline}
+.pays li span:first-child{font-weight:700;font-variant-numeric:tabular-nums}
+.pays li b{color:var(--red);font-variant-numeric:tabular-nums}
+.row2{display:flex;gap:8px}
+.row2 .field{flex:1;min-width:0}

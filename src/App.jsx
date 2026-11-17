@@ -492,7 +492,7 @@ function Main({ s }) {
               if (ok) { await store.eraseBilan(person.uid); toast('Bilan effacé.') }
             }}>Effacer le bilan</button>
           </div>
-          <Bilan entries={list} />
+          <Bilan entries={list} onPay={(bon) => setModal({ type: 'payBon', bon })} />
           <div className="total"><span>Montant final =</span><b>{fmt(debts[person.uid])}</b></div>
         </div>
       </>
@@ -573,6 +573,7 @@ function Main({ s }) {
           onClose={() => setModal(null)}
           onSubmit={async (amount) => { await store.addPayment(person.uid, amount); setModal(null); toast('Paiement enregistré.') }} />
       )}
+      {modal?.type === 'payBon' && person && <PayBon person={person} bon={modal.bon} onClose={() => setModal(null)} toast={toast} />}
       {modal?.type === 'editFood' && <EditFood food={s.foods.find((f) => f.uid === modal.uid)} img={s.images[modal.uid]?.url} onClose={() => setModal(null)} toast={toast} />}
       {modal?.type === 'changeCode' && <ChangeCode onClose={() => setModal(null)} toast={toast} />}
       <div id="toast" className={toastOn ? 'on' : ''}>{toastMsg}</div>
@@ -628,43 +629,109 @@ function ConfirmBon({ person, total, debt, onClose, onSave }) {
   )
 }
 
-/** Bilan regroupé par jour : la date une fois, l'heure sur chaque ligne, les articles en retrait. */
-function Bilan({ entries }) {
-  if (!entries.length) return <div className="empty">Aucun montant pour l'instant.</div>
+const when = (t) => new Date(t).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' }) + ' · ' + hour(t)
+
+/**
+ * Bilan d'un client, bon par bon : la date une fois par jour, l'heure sur chaque bon,
+ * les articles en colonnes, puis l'état du bon (soldé, avance, non payé) et
+ * l'historique de ses paiements avec date et heure.
+ */
+function Bilan({ entries, onPay }) {
+  const [filter, setFilter] = useState('all')
+  const bons = useMemo(() => store.ledger(entries), [entries])
+  if (!bons.length) return <div className="empty">Aucun bon pour l'instant.</div>
+  const counts = { all: bons.length, open: bons.filter((b) => b.status !== 'paid').length, paid: bons.filter((b) => b.status === 'paid').length }
+  const shown = bons.filter((b) => filter === 'all' || (filter === 'paid' ? b.status === 'paid' : b.status !== 'paid'))
   const groups = []
-  for (const e of entries) {
-    const key = dayKey(e.at)
+  for (const b of shown) {
+    const key = dayKey(b.entry.at)
     let g = groups[groups.length - 1]
-    if (!g || g.key !== key) { g = { key, label: dayLabel(e.at), rows: [] }; groups.push(g) }
-    g.rows.push(e)
+    if (!g || g.key !== key) { g = { key, label: dayLabel(b.entry.at), rows: [] }; groups.push(g) }
+    g.rows.push(b)
   }
   return (
     <div className="bil">
+      <div className="periods" role="tablist">
+        {[['all', 'Tous'], ['open', 'Non payés'], ['paid', 'Payés']].map(([k, label]) => (
+          <button key={k} type="button" role="tab" aria-selected={filter === k} className={filter === k ? 'on' : ''} onClick={() => setFilter(k)}>{label} ({counts[k]})</button>
+        ))}
+      </div>
+      {groups.length === 0 && <div className="empty">{filter === 'paid' ? 'Aucun bon soldé.' : 'Tous les bons sont soldés.'}</div>}
       {groups.map((g) => {
-        const sum = g.rows.reduce((a, e) => a + (e.pay ? -e.amount : e.amount), 0)
+        const sum = g.rows.reduce((a, b) => a + b.entry.amount, 0)
         return (
           <section className="day" key={g.key}>
-            <h4><span>{g.label}</span><small>{sum >= 0 ? '+ ' + fmt(sum) : '− ' + fmt(-sum)}</small></h4>
-            {g.rows.map((e) => (
-              <div className={e.pay ? 'ses pay' : 'ses'} key={e.uid}>
-                <div className="sl">
-                  <time>{hour(e.at)}</time>
-                  <span className="lab">{e.pay ? (e.label || 'Paiement') : 'Session'}</span>
-                  <b>{e.pay ? '− ' + fmt(e.amount) : fmt(e.amount)}</b>
+            <h4><span>{g.label}</span><small>{fmt(sum)}</small></h4>
+            {g.rows.map((b) => {
+              const e = b.entry
+              return (
+                <div className={'ses bon ' + b.status} key={e.uid}>
+                  <div className="sl">
+                    <time>{hour(e.at)}</time>
+                    <span className="lab">Bon</span>
+                    <b>{fmt(e.amount)}</b>
+                  </div>
+                  {e.items?.length > 0 && (
+                    <ul className="its">
+                      {e.items.map((it, i) => (
+                        <li key={i}><span>{it.n}</span><span className="q">×{it.q}</span><span className="u">{it.p ? 'à ' + fmt(it.p) : ''}</span><span className="p">{it.p ? fmt(it.p * it.q) : ''}</span></li>
+                      ))}
+                    </ul>
+                  )}
+                  <div className="state">
+                    {b.status === 'paid' && <span className="tag ok">✓ Soldé</span>}
+                    {b.status === 'partial' && <span className="tag part">Avance {fmt(b.paid)} · reste {fmt(b.remaining)}</span>}
+                    {b.status === 'open' && <span className="tag no">Non payé</span>}
+                    {b.status !== 'paid' && <button className="btn dark sm" type="button" onClick={() => onPay(b)}>Payer ce bon</button>}
+                  </div>
+                  {b.payments.length > 0 && (
+                    <ul className="pays">
+                      {b.payments.map((p, i) => (
+                        <li key={i}><span>{when(p.entry.at)}</span><span>{p.entry.label || 'Paiement'}</span><b>− {fmt(p.amount)}</b></li>
+                      ))}
+                    </ul>
+                  )}
                 </div>
-                {!e.pay && e.items?.length > 0 && (
-                  <ul className="its">
-                    {e.items.map((it, i) => (
-                      <li key={i}><span>{it.n}</span><span className="q">×{it.q}</span><span className="u">{it.p ? 'à ' + fmt(it.p) : ''}</span><span className="p">{it.p ? fmt(it.p * it.q) : ''}</span></li>
-                    ))}
-                  </ul>
-                )}
-              </div>
-            ))}
+              )
+            })}
           </section>
         )
       })}
     </div>
+  )
+}
+
+/** Payer un bon : tout solder, ou verser une avance. */
+function PayBon({ person, bon, onClose, toast }) {
+  const [amount, setAmount] = useState('')
+  const [err, setErr] = useState('')
+  const [busy, setBusy] = useState(false)
+  async function pay(value) {
+    setErr('')
+    setBusy(true)
+    try {
+      await store.payBon(person.uid, bon.entry.uid, value)
+      onClose()
+      toast(Number(value) >= bon.remaining ? 'Bon soldé.' : 'Avance de ' + fmt(value) + ' enregistrée.')
+    } catch (e) { setErr(e.message) } finally { setBusy(false) }
+  }
+  return (
+    <Sheet onClose={onClose}>
+      <h3>Payer le bon du {when(bon.entry.at)}</h3>
+      <div className="recap">
+        <div><span>Montant du bon</span><b>{fmt(bon.entry.amount)}</b></div>
+        <div><span>Déjà payé</span><b>{fmt(bon.paid)}</b></div>
+        <div className="hl"><span>Reste à payer</span><b>{fmt(bon.remaining)}</b></div>
+      </div>
+      <button className="btn dark wide" type="button" disabled={busy} style={{ marginTop: 14 }} onClick={() => pay(bon.remaining)}>Tout solder · {fmt(bon.remaining)}</button>
+      <p style={{ margin: '14px 0 8px', fontWeight: 700 }}>Ou une avance (en F) :</p>
+      <div className="row2">
+        <input className="field" type="number" inputMode="numeric" min="1" max={bon.remaining} placeholder="Ex : 2000" value={amount} onChange={(e) => setAmount(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') pay(amount) }} />
+        <button className="btn out" type="button" disabled={busy} onClick={() => pay(amount)}>Enregistrer l'avance</button>
+      </div>
+      <div className="err">{err}</div>
+      <div className="btns"><button className="btn out" type="button" onClick={onClose}>Annuler</button></div>
+    </Sheet>
   )
 }
 
