@@ -122,7 +122,21 @@ async function seedDefaults() {
   await db.putMany('foods', foods)
 }
 
+// Le numéro du compte reste mémorisé sur le téléphone, même après une déconnexion :
+// la connexion suivante ne demande plus que le code.
+const PHONE_KEY = 'ardoise241_phone'
+export function knownPhone() {
+  try { return localStorage.getItem(PHONE_KEY) || '' } catch { return '' }
+}
+export function forgetPhone() {
+  try { localStorage.removeItem(PHONE_KEY) } catch { /* sans importance */ }
+}
+function rememberPhone(phone) {
+  try { if (phone) localStorage.setItem(PHONE_KEY, phone) } catch { /* sans importance */ }
+}
+
 async function startSession(data) {
+  rememberPhone(data.account?.phone)
   await db.clearAll()
   await seedDefaults()
   state.token = data.token

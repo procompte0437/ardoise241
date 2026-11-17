@@ -97,6 +97,7 @@ function Brand() {
 
 function Welcome() {
   const [mode, setMode] = useState('login') // l'appli s'ouvre sur la connexion
+  const [saved, setSaved] = useState(() => store.knownPhone()) // numéro déjà connu sur ce téléphone
   const [phone, setPhone] = useState('')
   const [name, setName] = useState('')
   const [code, setCode] = useState('')
@@ -113,7 +114,7 @@ function Welcome() {
     setBusy(true)
     try {
       if (mode === 'register') await store.register({ phone, name, code, confirm })
-      else await store.login({ phone, code })
+      else await store.login({ phone: saved || phone, code })
     } catch (e) {
       setErr(e.message)
       setCode('')
@@ -124,19 +125,29 @@ function Welcome() {
   }
 
   const reg = mode === 'register'
+  const codeOnly = !reg && !!saved
   return (
     <div className="lockscreen form">
       <Brand />
       <h1>{reg ? 'Créer mon compte' : 'Connexion'}</h1>
-      <p>{reg ? 'Votre numéro sert d\'identifiant. Choisissez un code d\'accès et confirmez-le.' : "Connectez-vous une seule fois : ensuite l'application s'ouvre directement, même sans internet."}</p>
-      <label className="lbl">Numéro de téléphone</label>
-      <input className="field" type="tel" inputMode="tel" autoComplete="tel" placeholder="Ex : 077 12 34 56" value={phone} onChange={(e) => setPhone(e.target.value)} />
+      <p>{reg
+        ? 'Votre numéro sert d\'identifiant. Choisissez un code d\'accès et confirmez-le.'
+        : codeOnly ? 'Entrez votre code d\'accès.' : "Connectez-vous une seule fois : ensuite l'application s'ouvre directement, même sans internet."}</p>
+      {codeOnly ? (
+        <div className="known">
+          <span>Compte <b>{saved}</b></span>
+          <button type="button" onClick={() => { setSaved(''); setErr('') }}>Autre numéro</button>
+        </div>
+      ) : (<>
+        <label className="lbl">Numéro de téléphone</label>
+        <input className="field" type="tel" inputMode="tel" autoComplete="tel" placeholder="Ex : 077 12 34 56" value={phone} onChange={(e) => setPhone(e.target.value)} />
+      </>)}
       {reg && <>
         <label className="lbl">Nom du commerce (facultatif)</label>
         <input className="field" type="text" maxLength={60} placeholder="Ex : Chez Lessy" value={name} onChange={(e) => setName(e.target.value)} />
       </>}
       <label className="lbl">{reg ? 'Code d\'accès (4 à 6 chiffres)' : 'Code d\'accès'}</label>
-      <Secret inputMode="numeric" maxLength={6} placeholder="••••" value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, ''))} onKeyDown={(e) => { if (e.key === 'Enter' && !reg) go() }} />
+      <Secret autoFocus={codeOnly} inputMode="numeric" maxLength={6} placeholder="••••" value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, ''))} onKeyDown={(e) => { if (e.key === 'Enter' && !reg) go() }} />
       {reg && <>
         <label className="lbl">Confirmer le code</label>
         <Secret inputMode="numeric" maxLength={6} placeholder="••••" value={confirm} onChange={(e) => setConfirm(e.target.value.replace(/\D/g, ''))} onKeyDown={(e) => { if (e.key === 'Enter') go() }} />
