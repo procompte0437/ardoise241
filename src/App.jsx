@@ -382,7 +382,7 @@ function Main({ s }) {
               if (total <= 0) return toast('Touchez des images pour calculer.')
               setModal({ type: 'calcBilan' })
             }} aria-label="Voir le bilan du calcul"><small>Total</small><b>{fmt(total)}</b><span className="chipbil">Bilan ›</span></button>
-            <button className="btn line" type="button" onClick={() => setCounts({})}>Vider</button>
+            <button className="btn line" type="button" onClick={() => setCounts({})}>Effacer</button>
             {who
               ? <button className="btn" type="button" onClick={async () => {
                   try { await saveAsBon(who.uid, 0) } catch (e) { toast(e.message) }
