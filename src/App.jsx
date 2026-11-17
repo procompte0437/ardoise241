@@ -1,12 +1,25 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
-import { api, media, setToken } from './api'
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
+import * as store from './store'
 
 const fmt = (n) => Number(n || 0).toLocaleString('fr-FR') + ' F'
-
-function when(t) {
+const hour = (t) => new Date(t).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })
+const dayKey = (t) => { const d = new Date(t); return d.getFullYear() + '-' + d.getMonth() + '-' + d.getDate() }
+function dayLabel(t) {
   const d = new Date(t)
-  return d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' }) + ' · ' + d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })
+  const today = new Date()
+  const yesterday = new Date(Date.now() - 86400000)
+  if (dayKey(d) === dayKey(today)) return "Aujourd'hui"
+  if (dayKey(d) === dayKey(yesterday)) return 'Hier'
+  const s = d.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', year: d.getFullYear() === today.getFullYear() ? undefined : 'numeric' })
+  return s.charAt(0).toUpperCase() + s.slice(1)
 }
+
+function useStore() {
+  useSyncExternalStore(store.subscribe, store.snapshot)
+  return store.getState()
+}
+
+// ------------------------------------------------------------------ petits composants
 
 function Sheet({ dialog, onClose, children }) {
   return (
@@ -22,34 +35,24 @@ function FieldModal({ title, text, placeholder, maxLength, type = 'password', in
   const [busy, setBusy] = useState(false)
   const ref = useRef(null)
   useEffect(() => { ref.current?.focus() }, [])
-
   async function go() {
     setBusy(true)
+    setErr('')
     try {
       await onSubmit(value)
     } catch (e) {
       setErr(e.message || 'Erreur')
-      if (type !== 'text') setValue('')
+      if (type === 'password') setValue('')
     } finally {
       setBusy(false)
     }
   }
-
   return (
     <Sheet onClose={onClose}>
       <h3>{title}</h3>
       {text ? <p>{text}</p> : null}
-      <input
-        ref={ref}
-        className="field"
-        type={type}
-        inputMode={inputMode}
-        maxLength={maxLength}
-        placeholder={placeholder}
-        value={value}
-        onChange={(e) => setValue(e.target.value)}
-        onKeyDown={(e) => { if (e.key === 'Enter') go() }}
-      />
+      <input ref={ref} className="field" type={type} inputMode={inputMode} maxLength={maxLength} placeholder={placeholder}
+        value={value} onChange={(e) => setValue(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') go() }} />
       <div className="err">{err}</div>
       <div className="btns">
         <button className="btn out" type="button" onClick={onClose}>Annuler</button>
@@ -59,26 +62,156 @@ function FieldModal({ title, text, placeholder, maxLength, type = 'password', in
   )
 }
 
+function SyncDot({ s }) {
+  const sync = s.sync
+  let cls = 'ok'
+  let label = 'Sauvegardé'
+  if (sync.running) { cls = 'run'; label = 'Synchro…' }
+  else if (!sync.online) { cls = 'off'; label = sync.pending ? 'Hors ligne · ' + sync.pending + ' en attente' : 'Hors ligne' }
+  else if (sync.error) { cls = 'off'; label = 'À synchroniser' }
+  else if (sync.pending) { cls = 'run'; label = sync.pending + ' en attente' }
+  return <button className={'sync ' + cls} type="button" onClick={() => store.sync()} title={sync.error || label}><i />{label}</button>
+}
+
+function Brand() {
+  return <img className="flag" src="/flag.png" alt="" />
+}
+
+// ------------------------------------------------------------------ accueil sans compte
+
+function Welcome() {
+  const [mode, setMode] = useState('start')
+  const [phone, setPhone] = useState('')
+  const [name, setName] = useState('')
+  const [code, setCode] = useState('')
+  const [confirm, setConfirm] = useState('')
+  const [err, setErr] = useState('')
+  const [busy, setBusy] = useState(false)
+
+  async function go() {
+    setErr('')
+    if (mode === 'register') {
+      if (!/^\d{4,6}$/.test(code)) return setErr('Le code doit avoir 4 à 6 chiffres.')
+      if (code !== confirm) return setErr('Les deux codes ne sont pas identiques.')
+    }
+    setBusy(true)
+    try {
+      if (mode === 'register') await store.register({ phone, name, code, confirm })
+      else await store.login({ phone, code })
+    } catch (e) {
+      setErr(e.message)
+      setCode('')
+      setConfirm('')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  if (mode === 'start') {
+    return (
+      <div className="lockscreen">
+        <Brand />
+        <h1>Lessy aimé Rodrigue</h1>
+        <p>Votre calculatrice et votre cahier de bons, même sans internet.</p>
+        <button className="btn dark" type="button" onClick={() => setMode('register')}>Créer mon compte</button>
+        <button className="btn out" type="button" onClick={() => setMode('login')}>J'ai déjà un compte</button>
+        {!navigator.onLine && <p className="hint">La première connexion demande internet. Ensuite, l'application marche hors ligne.</p>}
+      </div>
+    )
+  }
+
+  const reg = mode === 'register'
+  return (
+    <div className="lockscreen form">
+      <Brand />
+      <h1>{reg ? 'Créer mon compte' : 'Retrouver mon compte'}</h1>
+      <p>{reg ? 'Votre numéro sert d\'identifiant. Choisissez un code d\'accès et confirmez-le.' : 'Entrez votre numéro et votre code : vos bons, vos images et vos prix reviennent sur ce téléphone.'}</p>
+      <label className="lbl">Numéro de téléphone</label>
+      <input className="field" type="tel" inputMode="tel" autoComplete="tel" placeholder="Ex : 077 12 34 56" value={phone} onChange={(e) => setPhone(e.target.value)} />
+      {reg && <>
+        <label className="lbl">Nom du commerce (facultatif)</label>
+        <input className="field" type="text" maxLength={60} placeholder="Ex : Chez Lessy" value={name} onChange={(e) => setName(e.target.value)} />
+      </>}
+      <label className="lbl">{reg ? 'Code d\'accès (4 à 6 chiffres)' : 'Code d\'accès'}</label>
+      <input className="field" type="password" inputMode="numeric" maxLength={6} placeholder="••••" value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, ''))} onKeyDown={(e) => { if (e.key === 'Enter' && !reg) go() }} />
+      {reg && <>
+        <label className="lbl">Confirmer le code</label>
+        <input className="field" type="password" inputMode="numeric" maxLength={6} placeholder="••••" value={confirm} onChange={(e) => setConfirm(e.target.value.replace(/\D/g, ''))} onKeyDown={(e) => { if (e.key === 'Enter') go() }} />
+      </>}
+      <div className="err">{err}</div>
+      <button className="btn dark" type="button" disabled={busy} onClick={go}>{busy ? (reg ? 'Création…' : 'Restauration…') : (reg ? 'Créer mon compte' : 'Se connecter')}</button>
+      <button className="btn out" type="button" onClick={() => { setMode('start'); setErr('') }}>Retour</button>
+    </div>
+  )
+}
+
+function Blocked({ s }) {
+  const [busy, setBusy] = useState(false)
+  const [msg, setMsg] = useState('')
+  const reason = store.access().reason
+  return (
+    <div className="lockscreen">
+      <Brand />
+      <h1>{reason === 'blocked' ? 'Compte suspendu' : 'Abonnement terminé'}</h1>
+      <p>{reason === 'blocked'
+        ? 'Ce compte a été suspendu. Contactez Ardoise241 pour le réactiver.'
+        : 'Votre période gratuite est terminée. Renouvelez votre abonnement auprès d\'Ardoise241 pour continuer. Vos données sont gardées.'}</p>
+      <p className="hint">Compte : {s.account?.phone}</p>
+      <button className="btn dark" type="button" disabled={busy} onClick={async () => {
+        setBusy(true); setMsg('')
+        try {
+          await store.refreshAccount()
+          if (!store.access().ok) setMsg('Toujours pas renouvelé.')
+        } catch (e) { setMsg(e.message) } finally { setBusy(false) }
+      }}>{busy ? 'Vérification…' : 'J\'ai renouvelé, vérifier'}</button>
+      <div className="err">{msg}</div>
+    </div>
+  )
+}
+
+function Relogin({ s }) {
+  const [code, setCode] = useState('')
+  const [err, setErr] = useState('')
+  return (
+    <div className="lockscreen">
+      <Brand />
+      <h1>Reconnectez-vous</h1>
+      <p>Pour continuer à sauvegarder en ligne, entrez le code d'accès du compte {s.account?.phone}. Rien n'est effacé de ce téléphone.</p>
+      <input className="field" type="password" inputMode="numeric" maxLength={6} placeholder="Code" value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, ''))} />
+      <div className="err">{err}</div>
+      <button className="btn dark" type="button" onClick={async () => {
+        try { await store.relogin(code) } catch (e) { setErr(e.message); setCode('') }
+      }}>Se reconnecter</button>
+    </div>
+  )
+}
+
+// ------------------------------------------------------------------ application
+
 export default function App() {
-  const [booted, setBooted] = useState(false)
-  const [bootError, setBootError] = useState('')
-  const [locked, setLocked] = useState(false)
-  const [names, setNames] = useState([])
-  const [foods, setFoods] = useState([])
-  const [maxNames, setMaxNames] = useState(200)
-  const [maxFoods, setMaxFoods] = useState(150)
-  const [view, setView] = useState('names')
-  const [admin, setAdmin] = useState(false)
-  const [cur, setCur] = useState(null)
-  const [person, setPerson] = useState(null)
+  const s = useStore()
+  useEffect(() => { store.boot() }, [])
+
+  if (!s.ready) return <div className="pad"><div className="empty">Chargement…</div></div>
+  if (!s.token) return <Welcome />
+  if (s.account?.needsLogin) return <Relogin s={s} />
+  if (!store.access().ok) return <Blocked s={s} />
+  return <Main s={s} />
+}
+
+function Main({ s }) {
+  const [view, setView] = useState('home') // home | calc | cahier | bilan | foods | settings
+  const [cur, setCur] = useState(null) // uid du client ouvert
+  const [calcFor, setCalcFor] = useState(null) // calculatrice liée à un client (depuis son bilan)
   const [counts, setCounts] = useState({})
   const [q, setQ] = useState('')
+  const [admin, setAdmin] = useState(false)
   const [modal, setModal] = useState(null)
   const [toastMsg, setToastMsg] = useState('')
   const [toastOn, setToastOn] = useState(false)
   const toastTimer = useRef(null)
-  const installShown = useRef(false)
-  const deferredInstall = useRef(null)
+
+  useEffect(() => { window.scrollTo(0, 0) }, [view])
 
   function toast(message) {
     setToastMsg(message)
@@ -87,88 +220,22 @@ export default function App() {
     toastTimer.current = setTimeout(() => setToastOn(false), 2600)
   }
 
-  function applyState(s) {
-    setLocked(!!s.locked)
-    setNames(s.names || [])
-    setFoods(s.foods || [])
-    setMaxNames(s.maxNames || 200)
-    setMaxFoods(s.maxFoods || 150)
-  }
+  const debts = useMemo(() => store.debts(s.entries), [s.entries])
+  const owing = useMemo(() => Object.values(debts).filter((d) => d > 0), [debts])
+  const total = useMemo(() => s.foods.reduce((sum, f) => sum + (counts[f.uid] || 0) * f.price, 0), [s.foods, counts])
+  const nbItems = Object.values(counts).reduce((a, b) => a + b, 0)
+  const person = s.people.find((p) => p.uid === cur) || null
+  const days = store.access().daysLeft
 
-  async function load() {
-    const s = await api.state()
-    applyState(s)
-    return s
-  }
-
-  useEffect(() => {
-    let cancel = false
-    load().catch(() => {
-      if (!cancel) setBootError('Impossible de joindre le back-office. Démarrez Laravel dans le dossier bo.')
-    }).finally(() => { if (!cancel) setBooted(true) })
-    return () => { cancel = true }
-  }, [])
-
-  useEffect(() => { window.scrollTo(0, 0) }, [view])
-
-  useEffect(() => {
-    function onPrompt(e) {
-      e.preventDefault()
-      deferredInstall.current = e
-    }
-    window.addEventListener('beforeinstallprompt', onPrompt)
-    return () => window.removeEventListener('beforeinstallprompt', onPrompt)
-  }, [])
-
-  useEffect(() => {
-    if (!booted || locked || view !== 'names' || installShown.current) return
-    let standalone = false
-    try {
-      standalone = (window.matchMedia && matchMedia('(display-mode: standalone)').matches) || window.navigator.standalone === true
-    } catch { /* ignore */ }
-    if (standalone || localStorage.getItem('lessy_install_dismissed') === '1') return
-    const t = setTimeout(() => {
-      installShown.current = true
-      setModal((current) => current || { type: 'install' })
-    }, 1500)
-    return () => clearTimeout(t)
-  }, [booted, locked, view])
-
-  const current = names.find((n) => n.id === cur) || null
-  const sessionTotal = useMemo(
-    () => foods.reduce((sum, food) => sum + (counts[String(food.id)] || 0) * Number(food.price || 0), 0),
-    [foods, counts],
-  )
-  const visible = useMemo(() => {
-    const query = q.trim().toLowerCase()
-    if (!query) return names
-    return names.filter((n) => n.name.toLowerCase().includes(query))
-  }, [names, q])
-
-  function becomeAdmin() {
+  function askCode({ title, text, submitLabel = 'Valider', danger }) {
     return new Promise((resolve) => {
-      let settled = false
-      const finish = (ok) => {
-        if (!settled) {
-          settled = true
-          resolve(ok)
-        }
-      }
       setModal({
-        type: 'code',
-        title: 'Code admin',
-        text: 'Entrez le code pour modifier les noms et les images.',
-        placeholder: 'Code',
-        maxLength: 8,
-        submitLabel: 'Entrer',
-        onCancel: () => { setModal(null); finish(false) },
+        type: 'code', title, text, submitLabel, danger,
+        onCancel: () => { setModal(null); resolve(false) },
         onSubmit: async (code) => {
-          const data = await api.login(code)
-          setToken(data.token)
-          setAdmin(true)
-          toast('Mode admin activé.')
+          if (!(await store.checkCode(code))) throw new Error('Code incorrect.')
           setModal(null)
-          finish(true)
+          resolve(true)
         },
       })
     })
@@ -176,529 +243,433 @@ export default function App() {
 
   async function needAdmin() {
     if (admin) return true
-    return becomeAdmin()
+    const ok = await askCode({ title: 'Mode gérant', text: 'Entrez votre code d\'accès pour modifier les noms, les prix et les paiements.', submitLabel: 'Entrer' })
+    if (ok) { setAdmin(true); toast('Mode gérant activé.') }
+    return ok
   }
 
-  async function toggleLock() {
-    if (admin) {
-      try { await api.logout() } catch { /* le jeton local suffit */ }
-      setToken(null)
-      setAdmin(false)
-      if (view === 'adminfoods') setView('names')
-      return
-    }
-    await becomeAdmin()
-  }
-
-  function openFoods(id) {
-    setCur(id)
-    setCounts({})
-    setModal(null)
-    setView('foods')
-  }
-
-  async function openPerson(id) {
-    setCur(id)
-    setModal(null)
-    setView('person')
-    try {
-      setPerson(await api.person(id))
-    } catch (e) {
-      toast(e.message)
-    }
-  }
-
-  function tap(id) {
-    const key = String(id)
-    setCounts((c) => ({ ...c, [key]: (c[key] || 0) + 1 }))
-  }
-
-  function untap(id) {
-    const key = String(id)
+  function tap(uid) { setCounts((c) => ({ ...c, [uid]: (c[uid] || 0) + 1 })) }
+  function untap(uid) {
     setCounts((c) => {
       const next = { ...c }
-      if (next[key] > 0) next[key] -= 1
-      if (!next[key]) delete next[key]
+      if (next[uid] > 0) next[uid] -= 1
+      if (!next[uid]) delete next[uid]
       return next
     })
   }
 
-  function clearSession() {
-    if (sessionTotal <= 0) return
+  function openCalc(forUid = null) {
+    setCalcFor(forUid)
     setCounts({})
-  }
-
-  function leaveFoods() {
-    if (sessionTotal > 0) {
-      setModal({
-        type: 'confirm',
-        message: "La session en cours n'a pas été validée. Quitter sans l'enregistrer ?",
-        label: 'Quitter',
-        onYes: () => { setCounts({}); setModal(null); setView('names') },
-      })
-      return
-    }
-    setView('names')
-  }
-
-  async function validate() {
-    if (sessionTotal <= 0) {
-      toast('Touchez des images pour ajouter des montants.')
-      return
-    }
-    try {
-      const data = await api.session(cur, counts)
-      setCounts({})
-      setPerson(data.person)
-      setNames((list) => list.map((n) => (n.id === data.person.id ? { ...n, debt: data.person.debt } : n)))
-      toast(fmt(data.amount) + ' ajoutés au bilan.')
-      setView('person')
-    } catch (e) {
-      if (e.status === 423) setLocked(true)
-      else toast(e.message)
-    }
-  }
-
-  async function unlockApp(code) {
-    await api.unlock(code)
     setModal(null)
-    await load()
+    setView('calc')
   }
 
-  function closeModal() { setModal(null) }
+  function leaveCalc() {
+    const back = calcFor ? 'bilan' : 'home'
+    if (total > 0) {
+      setModal({ type: 'confirm', message: 'Le calcul en cours sera perdu. Quitter ?', label: 'Quitter', onYes: () => { setCounts({}); setModal(null); setView(back) } })
+      return
+    }
+    setView(back)
+  }
+
+  async function saveAsBon(personUid, paid) {
+    const res = await store.addSession(personUid, counts, paid)
+    const who = s.people.find((p) => p.uid === personUid)
+    setCounts({})
+    setModal(null)
+    toast(res.owed > 0 ? fmt(res.owed) + ' mis en bon pour ' + (who?.name || '') : 'Encaissé : ' + fmt(res.total))
+    return res
+  }
+
+  function openBilan(uid) {
+    setCur(uid)
+    setModal(null)
+    setView('bilan')
+  }
+
+  const lockBtn = (
+    <button className="lock" type="button" onClick={() => (admin ? (setAdmin(false), toast('Mode gérant fermé.')) : needAdmin())} aria-label={admin ? 'Quitter le mode gérant' : 'Mode gérant'}>{admin ? '🔓' : '🔒'}</button>
+  )
 
   let body = null
-  if (!booted) {
-    body = <div className="pad"><div className="empty">Chargement…</div></div>
-  } else if (bootError) {
-    body = <div className="pad"><div className="empty">{bootError}</div></div>
-  } else if (locked) {
-    body = (
-      <div className="lockscreen">
-        <img className="flag" src="/flag.png" alt="Lessy" />
-        <h1>Accès verrouillé</h1>
-        <p>La période d'essai est terminée. Entrez le code utilisateur pour continuer.</p>
-        <LockForm onSubmit={unlockApp} />
-      </div>
-    )
-  } else if (view === 'names') {
+
+  if (view === 'home') {
     body = (
       <>
         <header className="top">
-          <h1 className="grow">Lessy aimé Rodrigue</h1>
-          <button className="lock" type="button" onClick={toggleLock} aria-label={admin ? 'Quitter le mode admin' : 'Mode admin'}>{admin ? '🔓' : '🔒'}</button>
+          <div className="grow">
+            <h1>Lessy aimé Rodrigue</h1>
+            <p>{s.account?.name || s.account?.phone}{days <= 15 ? ' · essai : ' + days + ' j restants' : ''}</p>
+          </div>
+          <SyncDot s={s} />
         </header>
-        {admin && (
-          <div className="adminbar">
-            <button className="chip" type="button" onClick={() => setModal({ type: 'addNames' })}>Ajouter des noms</button>
-            <button className="chip" type="button" onClick={() => setView('adminfoods')}>Gérer les images</button>
-            <button className="chip alt" type="button" onClick={() => setModal({ type: 'changeCode' })}>Changer le code</button>
-          </div>
-        )}
-        <div className="pad">
-          <input id="q" className="search" type="search" placeholder="Chercher un nom" value={q} onChange={(e) => setQ(e.target.value)} />
-          <div id="list">
-            {names.length === 0 && <div className="empty">{admin ? 'Aucun nom pour l\'instant. Touchez « Ajouter des noms ».' : 'Aucun nom pour l\'instant. L\'admin doit en ajouter.'}</div>}
-            {names.length > 0 && visible.length === 0 && <div className="empty">Aucun nom ne correspond à « {q} ».</div>}
-            {visible.map((n) => (
-              <div className="item" role="button" tabIndex={0} key={n.id} onClick={() => setModal({ type: 'choose', person: n })} onKeyDown={(e) => { if (e.key === 'Enter') setModal({ type: 'choose', person: n }) }}>
-                <span className="num">{n.num}</span>
-                <span className="t">{n.name}</span>
-                <button className="pen" type="button" aria-label="Modifier le nom" onClick={async (e) => { e.stopPropagation(); if (await needAdmin()) setModal({ type: 'rename', person: n }) }}>✎</button>
-                <span className="chev">›</span>
-              </div>
-            ))}
-          </div>
+        <div className="pad home">
+          <button className="hero" type="button" onClick={() => openCalc(null)}>
+            <span className="ico">🧮</span>
+            <b>Calculatrice</b>
+            <small>Touchez les images pour calculer</small>
+          </button>
+          <button className="hero small" type="button" onClick={() => { setQ(''); setView('cahier') }}>
+            <span className="ico">📒</span>
+            <span className="txt"><b>Cahier Bon</b><small>{owing.length ? owing.length + ' client(s) · ' + fmt(owing.reduce((a, b) => a + b, 0)) + ' en bon' : 'Aucun bon en cours'}</small></span>
+            <span className="chev">›</span>
+          </button>
+          <button className="linkbtn" type="button" onClick={async () => { if (await needAdmin()) setView('settings') }}>⚙ Réglages : images, prix, code, compte</button>
         </div>
       </>
     )
-  } else if (view === 'foods') {
-    const who = current
+  } else if (view === 'calc') {
+    const who = calcFor ? s.people.find((p) => p.uid === calcFor) : null
     body = (
       <>
         <header className="top">
-          <button className="back" type="button" onClick={leaveFoods} aria-label="Retour">‹</button>
-          <h1 className="grow">{who ? who.name : ''}</h1>
-          <button className="ghost" type="button" onClick={() => openPerson(cur)}>Bilan</button>
-          <button className="lock" type="button" onClick={toggleLock} aria-label={admin ? 'Quitter le mode admin' : 'Mode admin'}>{admin ? '🔓' : '🔒'}</button>
-        </header>
-        {admin && <div className="pad" style={{ paddingBottom: 0 }}><div className="empty" style={{ padding: 10, fontSize: 14 }}>Mode admin : touchez ✎ sous une image pour changer la photo, le nom et le montant.</div></div>}
-        {foods.length === 0 ? <div className="pad"><div className="empty">Aucune image pour l'instant. L'admin doit les ajouter.</div></div> : (
-          <>
-            <div className="grid">
-              {foods.map((food) => {
-                const n = counts[String(food.id)] || 0
-                return (
-                  <div className={n ? 'tile on' : 'tile'} key={food.id} onClick={() => tap(food.id)}>
-                    <div className="ph">
-                      {food.img ? <img src={media(food.img)} alt="" /> : <span className="cam">📷</span>}
-                      <i className="badge">×{n}</i>
-                      <button className="minus" type="button" aria-label="Retirer un" onClick={(e) => { e.stopPropagation(); untap(food.id) }}>−</button>
-                    </div>
-                    <div className="cf">
-                      <div className="ct">
-                        {food.name}
-                        {admin ? <small>{fmt(food.price)}</small> : null}
-                      </div>
-                      <button className="pen" type="button" aria-label={'Modifier ' + food.name} onClick={async (e) => { e.stopPropagation(); if (await needAdmin()) setModal({ type: 'editFood', food }) }}>✎</button>
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
-            <div className="bar">
-              <div className="in">
-                <div className="tot"><small>Montant final de la session</small><b>{fmt(sessionTotal)}</b></div>
-                <button className="btn line" type="button" onClick={clearSession}>Vider</button>
-                <button className="btn" type="button" onClick={validate}>Valider</button>
-              </div>
-            </div>
-          </>
-        )}
-      </>
-    )
-  } else if (view === 'person') {
-    const who = person && person.id === cur ? person : null
-    body = (
-      <>
-        <header className="top">
-          <div style={{ display: 'flex', alignItems: 'center', minWidth: 0 }}>
-            <button className="back" type="button" onClick={() => setView('names')} aria-label="Retour">←</button>
-            <div style={{ minWidth: 0 }}>
-              <h1 className="grow">{who ? who.name : (current ? current.name : '')}</h1>
-              <p>Bilan</p>
-            </div>
+          <button className="back" type="button" onClick={leaveCalc} aria-label="Retour">‹</button>
+          <div className="grow">
+            <h1>{who ? who.name : 'Calculatrice'}</h1>
+            <p>{who ? 'Nouvelle session · bilan ' + fmt(debts[who.uid]) : nbItems ? nbItems + ' article(s)' : 'Touchez une image pour l\'ajouter'}</p>
           </div>
+          {lockBtn}
         </header>
-        <div className="pad">
-          {who && (
-            <>
-              <div className="actions">
-                <button className="btn dark" type="button" onClick={() => openFoods(who.id)}>Nouvelle session (images)</button>
-                <button className="btn out" type="button" onClick={() => setModal({ type: 'erase' })}>Effacer le bilan</button>
-                {admin && <button className="btn out" type="button" onClick={() => setModal({ type: 'pay' })}>Enregistrer un paiement</button>}
-              </div>
-              {who.history.length === 0 ? <div className="empty">Aucun montant pour l'instant.</div> : (
-                <div className="bil">
-                  {who.history.map((entry, index) => (
-                    <div className={entry.pay ? 'bl pay' : 'bl'} key={index}>
-                      <b>{entry.pay ? '− ' + fmt(entry.amt) : fmt(entry.amt)}</b>
-                      <small>
-                        {entry.pay
-                          ? (entry.label || 'Paiement') + ' · ' + when(entry.t)
-                          : when(entry.t) + ' · ' + (entry.items || []).map((item) => item.n + ' ×' + item.q).join(', ')}
-                      </small>
-                    </div>
-                  ))}
+        {admin && <div className="pad" style={{ paddingBottom: 0 }}><div className="empty" style={{ padding: 10, fontSize: 14 }}>Mode gérant : touchez ✎ sous une image pour changer la photo, le nom et le prix.</div></div>}
+        <div className="grid">
+          {s.foods.map((food) => {
+            const n = counts[food.uid] || 0
+            const img = s.images[food.uid]?.url
+            return (
+              <div className={n ? 'tile on' : 'tile'} key={food.uid} onClick={() => tap(food.uid)}>
+                <div className="ph">
+                  {img ? <img src={img} alt="" /> : <span className="cam">📷</span>}
+                  <i className="badge">×{n}</i>
+                  <button className="minus" type="button" aria-label="Retirer un" onClick={(e) => { e.stopPropagation(); untap(food.uid) }}>−</button>
                 </div>
-              )}
-              <div className="total"><span>Montant final =</span><b>{fmt(who.debt)}</b></div>
-            </>
-          )}
+                <div className="cf">
+                  <div className="ct">{food.name}<small>{fmt(food.price)}</small></div>
+                  {admin && <button className="pen" type="button" aria-label={'Modifier ' + food.name} onClick={(e) => { e.stopPropagation(); setModal({ type: 'editFood', uid: food.uid }) }}>✎</button>}
+                </div>
+              </div>
+            )
+          })}
+        </div>
+        <div className="bar">
+          <div className="in">
+            <div className="tot"><small>Total</small><b>{fmt(total)}</b></div>
+            <button className="btn line" type="button" onClick={() => setCounts({})}>Vider</button>
+            {who
+              ? <button className="btn" type="button" onClick={async () => {
+                  try { await saveAsBon(who.uid, 0); setView('bilan') } catch (e) { toast(e.message) }
+                }}>Valider</button>
+              : <button className="btn" type="button" onClick={() => {
+                  if (total <= 0) return toast('Touchez des images pour calculer.')
+                  setModal({ type: 'pickName' })
+                }}>Mettre en bon</button>}
+          </div>
         </div>
       </>
     )
-  } else if (view === 'adminfoods') {
+  } else if (view === 'cahier') {
     body = (
       <>
         <header className="top">
-          <div style={{ display: 'flex', alignItems: 'center' }}>
-            <button className="back" type="button" onClick={() => setView('names')} aria-label="Retour">←</button>
-            <div>
-              <h1>Aliments</h1>
-              <p>{foods.length} / {maxFoods}</p>
-            </div>
-          </div>
+          <button className="back" type="button" onClick={() => setView('home')} aria-label="Retour">‹</button>
+          <div className="grow"><h1>Cahier Bon</h1><p>{owing.length} client(s) avec un bon · {fmt(owing.reduce((a, b) => a + b, 0))}</p></div>
+          {lockBtn}
+        </header>
+        <div className="pad">
+          <NameList people={s.people} debts={debts} q={q} setQ={setQ} admin={admin}
+            onPick={(p) => openBilan(p.uid)}
+            onRename={async (p) => { if (await needAdmin()) setModal({ type: 'rename', person: p }) }} />
+        </div>
+      </>
+    )
+  } else if (view === 'bilan' && person) {
+    const list = s.entries.filter((e) => e.person === person.uid)
+    body = (
+      <>
+        <header className="top">
+          <button className="back" type="button" onClick={() => setView('cahier')} aria-label="Retour">‹</button>
+          <div className="grow"><h1>{person.name}</h1><p>Bilan</p></div>
+          {lockBtn}
         </header>
         <div className="pad">
           <div className="actions">
-            <label className="btn dark" style={{ cursor: 'pointer' }}>
-              Ajouter des photos
-              <input type="file" accept="image/*" multiple hidden onChange={async (e) => {
-                const files = Array.from(e.target.files || [])
-                e.target.value = ''
-                if (!files.length) return
-                try {
-                  const data = await api.uploadPhotos(files)
-                  setFoods(data.foods)
-                  toast(data.message)
-                } catch (err) { toast(err.message) }
-              }} />
-            </label>
+            <button className="btn dark" type="button" onClick={() => openCalc(person.uid)}>Nouvelle session (images)</button>
+            <button className="btn out" type="button" onClick={async () => { if (await needAdmin()) setModal({ type: 'pay' }) }}>Paiement</button>
             <button className="btn out" type="button" onClick={async () => {
-              try {
-                const data = await api.addFood()
-                setFoods(data.foods)
-              } catch (err) { toast(err.message) }
-            }}>Ajouter sans photo</button>
+              if (!list.length) return toast('Le bilan est déjà vide.')
+              const ok = await askCode({ title: 'Effacer le bilan', text: 'Le bilan de ' + person.name + ' (' + fmt(debts[person.uid]) + ') sera effacé. Entrez votre code pour confirmer.', submitLabel: 'Effacer', danger: true })
+              if (ok) { await store.eraseBilan(person.uid); toast('Bilan effacé.') }
+            }}>Effacer le bilan</button>
           </div>
-          <p style={{ fontWeight: 500, margin: '0 0 12px' }}>Touchez une photo pour la changer et saisissez le montant de chaque image (en F). « Ajouter des photos » remplit les places vides dans l'ordre : Image 1, Image 2, etc.</p>
-          {foods.length === 0 && <div className="empty">Aucun aliment. Ajoutez vos photos pour commencer.</div>}
-          {foods.map((food) => (
-            <div className="frow" key={food.id}>
-              <label className="thumb">
-                {food.img ? <img src={media(food.img)} alt="" /> : <>Ajouter<br />photo</>}
-                <input type="file" accept="image/*" hidden onChange={async (e) => {
-                  const file = e.target.files?.[0]
-                  e.target.value = ''
-                  if (!file) return
-                  try {
-                    const data = await api.uploadImage(food.id, file)
-                    setFoods((list) => list.map((item) => item.id === food.id ? data.food : item))
-                  } catch (err) { toast(err.message) }
-                }} />
-              </label>
-              <div className="f">
-                <input className="field" defaultValue={food.name} maxLength={30} placeholder="Nom" onBlur={async (e) => {
-                  try { await api.updateFood(food.id, { name: e.target.value }) } catch (err) { toast(err.message) }
-                }} />
-                <input className="field" type="number" inputMode="numeric" min="0" defaultValue={food.price} placeholder="Montant FCFA" onBlur={async (e) => {
-                  try {
-                    const data = await api.updateFood(food.id, { price: e.target.value })
-                    setFoods((list) => list.map((item) => item.id === food.id ? data.food : item))
-                  } catch (err) { toast(err.message) }
-                }} />
-              </div>
-              <button className="icon" style={{ height: 64 }} type="button" aria-label="Supprimer" onClick={() => setModal({
-                type: 'confirm',
-                message: 'Supprimer « ' + food.name + ' » ?',
-                label: 'Supprimer',
-                onYes: async () => {
-                  setModal(null)
-                  try {
-                    const data = await api.deleteFood(food.id)
-                    setFoods(data.foods)
-                  } catch (err) { toast(err.message) }
-                },
-              })}>✕</button>
-            </div>
-          ))}
+          <Bilan entries={list} />
+          <div className="total"><span>Montant final =</span><b>{fmt(debts[person.uid])}</b></div>
         </div>
       </>
     )
+  } else if (view === 'settings') {
+    body = <Settings s={s} back={() => setView('home')} openFoods={() => setView('foods')} toast={toast} setModal={setModal} />
+  } else if (view === 'foods') {
+    body = <FoodsAdmin s={s} back={() => setView('settings')} toast={toast} edit={(uid) => setModal({ type: 'editFood', uid })} />
+  } else {
+    body = null
+    setTimeout(() => setView('home'))
   }
 
   return (
     <>
       {body}
-      {modal?.type === 'choose' && (
-        <Sheet onClose={closeModal}>
-          <h3>{modal.person.name}</h3>
-          <p>Bilan actuel : <b>{fmt(modal.person.debt)}</b></p>
-          <button className="btn dark" style={{ width: '100%', marginBottom: 10 }} type="button" onClick={() => openPerson(modal.person.id)}>Voir le bilan</button>
-          <button className="btn out" style={{ width: '100%' }} type="button" onClick={() => openFoods(modal.person.id)}>Nouvelle session (images)</button>
+      {modal?.type === 'pickName' && (
+        <Sheet onClose={() => setModal(null)}>
+          <h3>Mettre {fmt(total)} en bon pour…</h3>
+          <NameList people={s.people} debts={debts} q={q} setQ={setQ} compact onPick={(p) => setModal({ type: 'confirmBon', person: p })} />
         </Sheet>
       )}
+      {modal?.type === 'confirmBon' && <ConfirmBon person={modal.person} total={total} debt={debts[modal.person.uid] || 0} onClose={() => setModal({ type: 'pickName' })} onSave={saveAsBon} />}
       {modal?.type === 'confirm' && (
-        <Sheet onClose={closeModal}>
+        <Sheet onClose={() => setModal(null)}>
           <h3>Confirmer</h3>
           <p>{modal.message}</p>
           <div className="btns">
-            <button className="btn out" type="button" onClick={closeModal}>Annuler</button>
+            <button className="btn out" type="button" onClick={() => setModal(null)}>Annuler</button>
             <button className="btn danger" type="button" onClick={modal.onYes}>{modal.label || 'Confirmer'}</button>
           </div>
         </Sheet>
       )}
       {modal?.type === 'code' && (
-        <FieldModal
-          title={modal.title}
-          text={modal.text}
-          placeholder={modal.placeholder}
-          maxLength={modal.maxLength}
-          inputMode="numeric"
-          submitLabel={modal.submitLabel}
-          onClose={modal.onCancel || closeModal}
-          onSubmit={modal.onSubmit}
-        />
+        <FieldModal title={modal.title} text={modal.text} placeholder="Code" maxLength={6} inputMode="numeric"
+          submitLabel={modal.submitLabel} danger={modal.danger} onClose={modal.onCancel} onSubmit={modal.onSubmit} />
       )}
-      {modal?.type === 'addNames' && <AddNames room={maxNames - names.length} onClose={closeModal} onDone={(data) => { setNames(data.names); setModal(null); toast(data.message) }} />}
       {modal?.type === 'rename' && (
-        <FieldModal
-          title="Modifier le nom"
-          type="text"
-          initial={modal.person.name}
-          placeholder="Nom"
-          maxLength={40}
-          submitLabel="Enregistrer"
-          onClose={closeModal}
-          onSubmit={async (name) => {
-            if (!name.trim()) throw new Error('Le nom ne peut pas être vide.')
-            const data = await api.rename(modal.person.id, name)
-            setNames(data.names)
-            if (person?.id === modal.person.id) setPerson({ ...person, name: name.trim() })
-            setModal(null)
-          }}
-        />
+        <FieldModal title="Modifier le nom" type="text" initial={modal.person.name} placeholder="Nom" maxLength={40} submitLabel="Enregistrer"
+          onClose={() => setModal(null)}
+          onSubmit={async (name) => { await store.renamePerson(modal.person.uid, name); setModal(null) }} />
       )}
-      {modal?.type === 'changeCode' && (
-        <FieldModal
-          title="Changer le code"
-          text="Nouveau code (4 chiffres) :"
-          placeholder="4 chiffres"
-          maxLength={4}
-          inputMode="numeric"
-          submitLabel="Enregistrer"
-          onClose={closeModal}
-          onSubmit={async (code) => {
-            const data = await api.changeCode(code)
-            setModal(null)
-            toast(data.message || 'Code modifié.')
-          }}
-        />
+      {modal?.type === 'pay' && person && (
+        <FieldModal title="Enregistrer un paiement" text={person.name + ' doit ' + fmt(debts[person.uid]) + '. Montant payé (F) :'} placeholder="Ex : 5000" type="number" inputMode="numeric" submitLabel="Enregistrer"
+          onClose={() => setModal(null)}
+          onSubmit={async (amount) => { await store.addPayment(person.uid, amount); setModal(null); toast('Paiement enregistré.') }} />
       )}
-      {modal?.type === 'erase' && person && (
-        <FieldModal
-          title="Effacer le bilan"
-          text={'Le bilan de ' + person.name + ' (' + fmt(person.debt) + ') sera effacé définitivement. Entrez le code pour confirmer, sinon il reste inchangé.'}
-          placeholder="Code"
-          maxLength={8}
-          inputMode="numeric"
-          submitLabel="Effacer"
-          danger
-          onClose={closeModal}
-          onSubmit={async (code) => {
-            const data = await api.erase(person.id, code)
-            setPerson(data)
-            setNames((list) => list.map((n) => n.id === data.id ? { ...n, debt: data.debt } : n))
-            setModal(null)
-            toast('Bilan effacé.')
-          }}
-        />
-      )}
-      {modal?.type === 'pay' && (
-        <FieldModal
-          title="Enregistrer un paiement"
-          text="Montant payé en FCFA :"
-          placeholder="Ex : 5000"
-          type="number"
-          inputMode="numeric"
-          submitLabel="Enregistrer"
-          onClose={closeModal}
-          onSubmit={async (amount) => {
-            const data = await api.pay(cur, amount)
-            setPerson(data)
-            setNames((list) => list.map((n) => n.id === data.id ? { ...n, debt: data.debt } : n))
-            setModal(null)
-          }}
-        />
-      )}
-      {modal?.type === 'editFood' && (
-        <EditFood
-          food={foods.find((f) => f.id === modal.food.id) || modal.food}
-          onClose={closeModal}
-          onSaved={(food) => setFoods((list) => list.map((item) => item.id === food.id ? food : item))}
-          toast={toast}
-        />
-      )}
-      {modal?.type === 'install' && (
-        <Sheet dialog onClose={closeModal}>
-          <img className="flag" src="/flag.png" alt="Drapeau du Gabon" />
-          <h3>Afficher le drapeau sur votre écran</h3>
-          <p>Touchez <b>Installer</b>, puis confirmez : le drapeau de Lessy aimé Rodrigue s'ajoute sur l'écran de votre téléphone.</p>
-          <div className="btns">
-            <button className="btn dark" type="button" onClick={() => {
-              setModal(null)
-              const prompt = deferredInstall.current
-              if (prompt) {
-                deferredInstall.current = null
-                prompt.prompt()
-                return
-              }
-              const ios = /iphone|ipad|ipod/i.test(navigator.userAgent)
-              setModal({ type: 'installHelp', ios })
-            }}>Installer</button>
-            <button className="btn out" type="button" onClick={closeModal}>Plus tard</button>
-          </div>
-        </Sheet>
-      )}
-      {modal?.type === 'installHelp' && (
-        <Sheet dialog onClose={closeModal}>
-          <img src="/icon192.png" alt="" />
-          <h3>Installer Lessy aimé Rodrigue</h3>
-          <p className="steps" dangerouslySetInnerHTML={{ __html: modal.ios
-            ? '1. Touchez le bouton <b>Partager</b> en bas de Safari.<br>2. Touchez <b>Sur l\'écran d\'accueil</b>, puis <b>Ajouter</b>.'
-            : '1. Touchez le menu <b>⋮</b> en haut à droite du navigateur.<br>2. Touchez <b>Installer l\'application</b> (ou <b>Ajouter à l\'écran d\'accueil</b>), puis confirmez.' }} />
-          <div className="btns">
-            <button className="btn dark" type="button" onClick={() => { localStorage.setItem('lessy_install_dismissed', '1'); closeModal() }}>Compris</button>
-          </div>
-        </Sheet>
-      )}
+      {modal?.type === 'editFood' && <EditFood food={s.foods.find((f) => f.uid === modal.uid)} img={s.images[modal.uid]?.url} onClose={() => setModal(null)} toast={toast} />}
+      {modal?.type === 'changeCode' && <ChangeCode onClose={() => setModal(null)} toast={toast} />}
       <div id="toast" className={toastOn ? 'on' : ''}>{toastMsg}</div>
     </>
   )
 }
 
-function LockForm({ onSubmit }) {
-  const [code, setCode] = useState('')
-  const [err, setErr] = useState('')
-  const ref = useRef(null)
-  useEffect(() => { ref.current?.focus() }, [])
-  async function go() {
-    try {
-      await onSubmit(code)
-    } catch (e) {
-      setErr(e.message || 'Code incorrect.')
-      setCode('')
-    }
-  }
+function NameList({ people, debts, q, setQ, onPick, onRename, admin, compact }) {
+  const visible = useMemo(() => {
+    const query = q.trim().toLowerCase()
+    return query ? people.filter((p) => p.name.toLowerCase().includes(query) || String(p.position) === query) : people
+  }, [people, q])
   return (
     <>
-      <input ref={ref} className="field" type="password" inputMode="numeric" maxLength={6} placeholder="Code" value={code} onChange={(e) => setCode(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') go() }} />
-      <div className="err">{err}</div>
-      <button className="btn dark" type="button" onClick={go}>Déverrouiller</button>
+      <input className="search" type="search" placeholder="Chercher un nom ou un numéro" value={q} onChange={(e) => setQ(e.target.value)} />
+      {visible.length === 0 && <div className="empty">Aucun nom ne correspond à « {q} ».</div>}
+      <div className={compact ? 'names compact' : 'names'}>
+        {visible.map((p) => (
+          <div className="item" role="button" tabIndex={0} key={p.uid} onClick={() => onPick(p)} onKeyDown={(e) => { if (e.key === 'Enter') onPick(p) }}>
+            <span className="num">{p.position}</span>
+            <span className="t">{p.name}</span>
+            {debts[p.uid] > 0 && <span className="due">{fmt(debts[p.uid])}</span>}
+            {onRename && <button className={admin ? 'pen' : 'pen dim'} type="button" aria-label="Modifier le nom" onClick={(e) => { e.stopPropagation(); onRename(p) }}>✎</button>}
+            <span className="chev">›</span>
+          </div>
+        ))}
+      </div>
     </>
   )
 }
 
-function AddNames({ room, onClose, onDone }) {
-  const [text, setText] = useState('')
+function ConfirmBon({ person, total, debt, onClose, onSave }) {
+  const [paid, setPaid] = useState('')
   const [err, setErr] = useState('')
+  const cash = Math.min(total, Math.max(0, Number(paid) || 0))
   return (
     <Sheet onClose={onClose}>
-      <h3>Ajouter des noms</h3>
-      <p>Un nom par ligne. Vous pouvez en coller plusieurs d'un coup ({room} places restantes).</p>
-      <textarea className="field" placeholder={'Ex :\nMarie\nJean Paul\nAïcha'} value={text} onChange={(e) => setText(e.target.value)} />
+      <h3>{person.name}</h3>
+      <div className="recap">
+        <div><span>Total du calcul</span><b>{fmt(total)}</b></div>
+        <div><span>Payé maintenant</span>
+          <input className="field mini" type="number" inputMode="numeric" min="0" placeholder="0" value={paid} onChange={(e) => setPaid(e.target.value)} />
+        </div>
+        <div className="hl"><span>Mis en bon</span><b>{fmt(total - cash)}</b></div>
+        <div className="mut"><span>Nouveau bilan</span><b>{fmt(debt + total - cash)}</b></div>
+      </div>
       <div className="err">{err}</div>
       <div className="btns">
-        <button className="btn out" type="button" onClick={onClose}>Annuler</button>
-        <button className="btn dark" type="button" onClick={async () => {
-          try { onDone(await api.addNames(text)) } catch (e) { setErr(e.message) }
-        }}>Ajouter</button>
+        <button className="btn out" type="button" onClick={onClose}>Changer de nom</button>
+        <button className="btn dark" type="button" onClick={async () => { try { await onSave(person.uid, cash) } catch (e) { setErr(e.message) } }}>Enregistrer le bon</button>
       </div>
     </Sheet>
   )
 }
 
-function EditFood({ food, onClose, onSaved, toast }) {
+/** Bilan regroupé par jour : la date une fois, l'heure sur chaque ligne, les articles en retrait. */
+function Bilan({ entries }) {
+  if (!entries.length) return <div className="empty">Aucun montant pour l'instant.</div>
+  const groups = []
+  for (const e of entries) {
+    const key = dayKey(e.at)
+    let g = groups[groups.length - 1]
+    if (!g || g.key !== key) { g = { key, label: dayLabel(e.at), rows: [] }; groups.push(g) }
+    g.rows.push(e)
+  }
+  return (
+    <div className="bil">
+      {groups.map((g) => {
+        const sum = g.rows.reduce((a, e) => a + (e.pay ? -e.amount : e.amount), 0)
+        return (
+          <section className="day" key={g.key}>
+            <h4><span>{g.label}</span><small>{sum >= 0 ? '+ ' + fmt(sum) : '− ' + fmt(-sum)}</small></h4>
+            {g.rows.map((e) => (
+              <div className={e.pay ? 'ses pay' : 'ses'} key={e.uid}>
+                <div className="sl">
+                  <time>{hour(e.at)}</time>
+                  <span className="lab">{e.pay ? (e.label || 'Paiement') : 'Session'}</span>
+                  <b>{e.pay ? '− ' + fmt(e.amount) : fmt(e.amount)}</b>
+                </div>
+                {!e.pay && e.items?.length > 0 && (
+                  <ul className="its">
+                    {e.items.map((it, i) => (
+                      <li key={i}><span>{it.n}</span><span className="q">×{it.q}</span><span className="p">{it.p ? fmt(it.p * it.q) : ''}</span></li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            ))}
+          </section>
+        )
+      })}
+    </div>
+  )
+}
+
+function Settings({ s, back, openFoods, toast, setModal }) {
+  const a = s.account
+  const end = new Date(a.endsAt)
+  const last = s.sync.lastAt ? new Date(s.sync.lastAt) : null
+  return (
+    <>
+      <header className="top">
+        <button className="back" type="button" onClick={back} aria-label="Retour">‹</button>
+        <div className="grow"><h1>Réglages</h1><p>{a.name || a.phone}</p></div>
+      </header>
+      <div className="pad">
+        <div className="card">
+          <div className="kv"><span>Compte</span><b>{a.phone}</b></div>
+          <div className="kv"><span>{a.status === 'abonne' ? 'Abonné jusqu\'au' : 'Essai gratuit jusqu\'au'}</span><b>{end.toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' })}</b></div>
+          <div className="kv"><span>Jours restants</span><b>{store.access().daysLeft}</b></div>
+        </div>
+        <div className="card">
+          <div className="kv"><span>Sauvegarde en ligne</span><SyncDot s={s} /></div>
+          <div className="kv"><span>Dernière synchro</span><b>{last ? last.toLocaleString('fr-FR', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : 'jamais'}</b></div>
+          {s.sync.error && <div className="kv"><span>Problème</span><b className="red">{s.sync.error}</b></div>}
+          <button className="btn out wide" type="button" onClick={() => store.sync().then(() => toast(store.getState().sync.error || 'Synchronisé.'))}>Synchroniser maintenant</button>
+        </div>
+        <button className="btn dark wide" type="button" onClick={openFoods}>Images et prix</button>
+        <button className="btn out wide" type="button" onClick={() => setModal({ type: 'changeCode' })}>Changer mon code d'accès</button>
+        <button className="btn out wide" type="button" onClick={() => setModal({
+          type: 'confirm',
+          message: s.sync.pending
+            ? s.sync.pending + ' modification(s) ne sont pas encore sauvegardées en ligne et seront perdues. Se déconnecter quand même ?'
+            : 'Les données seront retirées de ce téléphone. Vous les retrouverez avec votre numéro et votre code.',
+          label: 'Se déconnecter',
+          onYes: () => store.logout(),
+        })}>Se déconnecter de ce téléphone</button>
+      </div>
+    </>
+  )
+}
+
+function FoodsAdmin({ s, back, toast, edit }) {
+  const withPhoto = s.foods.filter((f) => f.imgHave).length
+  return (
+    <>
+      <header className="top">
+        <button className="back" type="button" onClick={back} aria-label="Retour">‹</button>
+        <div className="grow"><h1>Images et prix</h1><p>{withPhoto} / {s.foods.length} avec photo</p></div>
+      </header>
+      <div className="pad">
+        <div className="actions">
+          <label className="btn dark" style={{ cursor: 'pointer' }}>
+            Ajouter des photos
+            <input type="file" accept="image/*" multiple hidden onChange={async (e) => {
+              const files = Array.from(e.target.files || [])
+              e.target.value = ''
+              if (!files.length) return
+              try {
+                const r = await store.fillPhotos(files)
+                toast(r.added + ' photo(s) ajoutée(s)' + (r.skipped ? ', ' + r.skipped + ' sans place libre' : '') + '.')
+              } catch (err) { toast(err.message) }
+            }} />
+          </label>
+        </div>
+        <p className="hint">« Ajouter des photos » remplit les images vides dans l'ordre. Touchez une ligne pour changer la photo, le nom ou le prix.</p>
+        {s.foods.map((food) => (
+          <button className="frow" type="button" key={food.uid} onClick={() => edit(food.uid)}>
+            <span className="thumb">{s.images[food.uid] ? <img src={s.images[food.uid].url} alt="" /> : '📷'}</span>
+            <span className="f"><b>{food.name}</b><small>{fmt(food.price)}</small></span>
+            <span className="chev">›</span>
+          </button>
+        ))}
+      </div>
+    </>
+  )
+}
+
+function EditFood({ food, img, onClose, toast }) {
   const [name, setName] = useState(food.name)
   const [price, setPrice] = useState(String(food.price))
   return (
     <Sheet onClose={onClose}>
       <h3>Modifier l'image</h3>
-      <label className="btn dark" style={{ display: 'block', textAlign: 'center', cursor: 'pointer', marginBottom: 12 }}>
-        Changer la photo
+      <label className="editph">
+        {img ? <img src={img} alt="" /> : <span>📷</span>}
+        <em>Changer la photo</em>
         <input type="file" accept="image/*" hidden onChange={async (e) => {
           const file = e.target.files?.[0]
           e.target.value = ''
           if (!file) return
-          try {
-            const data = await api.uploadImage(food.id, file)
-            onSaved(data.food)
-          } catch (err) { toast(err.message) }
+          try { await store.setFoodImage(food.uid, file) } catch (err) { toast(err.message) }
         }} />
       </label>
       <p>Nom :</p>
       <input className="field" maxLength={30} value={name} onChange={(e) => setName(e.target.value)} style={{ marginBottom: 12 }} />
-      <p>Montant de cette image (en F) :</p>
+      <p>Prix (en F) :</p>
       <input className="field" type="number" inputMode="numeric" min="0" value={price} onChange={(e) => setPrice(e.target.value)} />
       <div className="btns">
         <button className="btn out" type="button" onClick={onClose}>Annuler</button>
         <button className="btn dark" type="button" onClick={async () => {
-          try {
-            const data = await api.updateFood(food.id, { name, price })
-            onSaved(data.food)
-            onClose()
-          } catch (err) { toast(err.message) }
+          try { await store.updateFood(food.uid, { name, price }); onClose() } catch (err) { toast(err.message) }
+        }}>Enregistrer</button>
+      </div>
+    </Sheet>
+  )
+}
+
+function ChangeCode({ onClose, toast }) {
+  const [current, setCurrent] = useState('')
+  const [code, setCode] = useState('')
+  const [confirm, setConfirm] = useState('')
+  const [err, setErr] = useState('')
+  const [busy, setBusy] = useState(false)
+  const digits = (fn) => (e) => fn(e.target.value.replace(/\D/g, ''))
+  return (
+    <Sheet onClose={onClose}>
+      <h3>Changer mon code d'accès</h3>
+      <p>Il faut internet : le nouveau code sert aussi à retrouver vos données sur un autre téléphone.</p>
+      <input className="field" type="password" inputMode="numeric" maxLength={6} placeholder="Code actuel" value={current} onChange={digits(setCurrent)} style={{ marginBottom: 8 }} />
+      <input className="field" type="password" inputMode="numeric" maxLength={6} placeholder="Nouveau code (4 à 6 chiffres)" value={code} onChange={digits(setCode)} style={{ marginBottom: 8 }} />
+      <input className="field" type="password" inputMode="numeric" maxLength={6} placeholder="Confirmer le nouveau code" value={confirm} onChange={digits(setConfirm)} />
+      <div className="err">{err}</div>
+      <div className="btns">
+        <button className="btn out" type="button" onClick={onClose}>Annuler</button>
+        <button className="btn dark" type="button" disabled={busy} onClick={async () => {
+          setErr('')
+          if (code !== confirm) return setErr('Les deux codes ne sont pas identiques.')
+          setBusy(true)
+          try { await store.changeCode(current, code, confirm); onClose(); toast('Code modifié.') } catch (e) { setErr(e.message) } finally { setBusy(false) }
         }}>Enregistrer</button>
       </div>
     </Sheet>
