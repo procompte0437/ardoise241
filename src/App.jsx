@@ -21,9 +21,34 @@ function useStore() {
 
 // ------------------------------------------------------------------ petits composants
 
+/**
+ * Souris (ordinateur) : on peut placer le curseur tout seul dans le champ.
+ * Écran tactile : non, sinon le clavier s'ouvre seul et décale la fenêtre.
+ */
+function finePointer() {
+  try { return window.matchMedia('(pointer: fine)').matches } catch { return false }
+}
+
 function Sheet({ dialog, onClose, children }) {
+  // Sur téléphone, toucher un champ ouvre le clavier : la fenêtre remonte et le
+  // « clic » qui suit peut tomber sur le fond. On ne ferme donc que si le toucher
+  // a commencé ET fini sur le fond, jamais quand il a commencé dans la fenêtre.
+  const downOnBackdrop = useRef(false)
   return (
-    <div className={dialog ? 'ov mid' : 'ov'} onClick={(e) => { if (e.target === e.currentTarget) onClose() }}>
+    <div
+      className={dialog ? 'ov mid' : 'ov'}
+      onPointerDown={(e) => {
+        // Clavier ouvert (un champ de la fenêtre a le focus) : ce toucher ne fait que
+        // fermer le clavier, la fenêtre reste ouverte.
+        const active = document.activeElement
+        const typing = active && e.currentTarget.contains(active) && /^(INPUT|TEXTAREA|SELECT)$/.test(active.tagName)
+        downOnBackdrop.current = !typing && e.target === e.currentTarget
+      }}
+      onClick={(e) => {
+        if (downOnBackdrop.current && e.target === e.currentTarget) onClose()
+        downOnBackdrop.current = false
+      }}
+    >
       <div className={dialog ? 'sheet dlg' : 'sheet'} role="dialog" aria-modal="true">{children}</div>
     </div>
   )
@@ -34,7 +59,7 @@ function FieldModal({ title, text, placeholder, maxLength, type = 'password', in
   const [err, setErr] = useState('')
   const [busy, setBusy] = useState(false)
   const ref = useRef(null)
-  useEffect(() => { ref.current?.focus() }, [])
+  useEffect(() => { if (finePointer()) ref.current?.focus() }, [])
   async function go() {
     setBusy(true)
     setErr('')
@@ -176,7 +201,7 @@ function Welcome() {
         <input className="field" type="text" maxLength={60} placeholder="Ex : Chez Lessy" value={name} onChange={(e) => setName(e.target.value)} />
       </>}
       <label className="lbl">{reg ? 'Code d\'accès (4 à 6 chiffres)' : 'Code d\'accès'}</label>
-      <Secret autoFocus={codeOnly} inputMode="numeric" maxLength={6} placeholder="••••" value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, ''))} onKeyDown={(e) => { if (e.key === 'Enter' && !reg) go() }} />
+      <Secret autoFocus={codeOnly && finePointer()} inputMode="numeric" maxLength={6} placeholder="••••" value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, ''))} onKeyDown={(e) => { if (e.key === 'Enter' && !reg) go() }} />
       {reg && <>
         <label className="lbl">Confirmer le code</label>
         <Secret inputMode="numeric" maxLength={6} placeholder="••••" value={confirm} onChange={(e) => setConfirm(e.target.value.replace(/\D/g, ''))} onKeyDown={(e) => { if (e.key === 'Enter') go() }} />
