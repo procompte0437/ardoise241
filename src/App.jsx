@@ -378,7 +378,10 @@ function Main({ s }) {
         </div>
         <div className="bar">
           <div className="in">
-            <div className="tot"><small>Total</small><b>{fmt(total)}</b></div>
+            <button className="tot" type="button" onClick={() => {
+              if (total <= 0) return toast('Touchez des images pour calculer.')
+              setModal({ type: 'calcBilan' })
+            }} aria-label="Voir le bilan du calcul"><small>Total</small><b>{fmt(total)}</b><span className="chipbil">Bilan ›</span></button>
             <button className="btn line" type="button" onClick={() => setCounts({})}>Vider</button>
             {who
               ? <button className="btn" type="button" onClick={async () => {
@@ -443,6 +446,32 @@ function Main({ s }) {
   return (
     <>
       {body}
+      {modal?.type === 'calcBilan' && (() => {
+        const who = calcFor ? s.people.find((p) => p.uid === calcFor) : null
+        const lines = s.foods.filter((f) => counts[f.uid] > 0)
+        return (
+          <Sheet onClose={() => setModal(null)}>
+            <h3>Bilan du calcul{who ? ' · ' + who.name : ''}</h3>
+            <div className="ses">
+              <div className="sl"><span className="lab">Calcul en cours</span><b>{fmt(total)}</b></div>
+              <ul className="its">
+                {lines.map((f) => (
+                  <li key={f.uid}><span>{f.name}</span><span className="q">×{counts[f.uid]}</span><span className="u">{'à ' + fmt(f.price)}</span><span className="p">{fmt(f.price * counts[f.uid])}</span></li>
+                ))}
+              </ul>
+            </div>
+            <div className="total"><span>Total =</span><b>{fmt(total)}</b></div>
+            <div className="btns">
+              {who
+                ? <button className="btn dark" type="button" onClick={async () => { try { await saveAsBon(who.uid, 0) } catch (e) { toast(e.message) } }}>Ajouter au bilan de {who.name}</button>
+                : <>
+                    <button className="btn out" type="button" onClick={() => { setCounts({}); setModal(null); toast('Encaissé : ' + fmt(total)) }}>Encaissé</button>
+                    <button className="btn dark" type="button" onClick={() => setModal({ type: 'pickName' })}>Mettre en bon</button>
+                  </>}
+            </div>
+          </Sheet>
+        )
+      })()}
       {modal?.type === 'pickName' && (
         <Sheet onClose={() => setModal(null)}>
           <h3>Mettre {fmt(total)} en bon pour…</h3>
@@ -556,7 +585,7 @@ function Bilan({ entries }) {
                 {!e.pay && e.items?.length > 0 && (
                   <ul className="its">
                     {e.items.map((it, i) => (
-                      <li key={i}><span>{it.n}</span><span className="q">×{it.q}</span><span className="p">{it.p ? fmt(it.p * it.q) : ''}</span></li>
+                      <li key={i}><span>{it.n}</span><span className="q">×{it.q}</span><span className="u">{it.p ? 'à ' + fmt(it.p) : ''}</span><span className="p">{it.p ? fmt(it.p * it.q) : ''}</span></li>
                     ))}
                   </ul>
                 )}

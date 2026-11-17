@@ -3,7 +3,8 @@
   "appName": "Lessy aimé Rodrigue",
   "webDir": "dist",
   "android": {
-    "backgroundColor": "#1A1612"
+    "backgroundColor": "#1A1612",
+    "adjustMarginsForEdgeToEdge": "force"
   },
   "server": {
     "androidScheme": "https"
