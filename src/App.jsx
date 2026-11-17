@@ -326,7 +326,8 @@ function Main({ s }) {
             <h1>Lessy aimé Rodrigue</h1>
             <p>{s.account?.name || s.account?.phone}{days <= 15 ? ' · essai : ' + days + ' j restants' : ''}</p>
           </div>
-          <SyncDot s={s} />
+          {/* La synchro se fait sans bruit : l'état n'est visible qu'en mode gérant / admin. */}
+          {admin && <SyncDot s={s} />}
         </header>
         <div className="pad home">
           <button className="hero" type="button" onClick={() => openCalc(null)}>
