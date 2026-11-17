@@ -51,14 +51,30 @@ function FieldModal({ title, text, placeholder, maxLength, type = 'password', in
     <Sheet onClose={onClose}>
       <h3>{title}</h3>
       {text ? <p>{text}</p> : null}
-      <input ref={ref} className="field" type={type} inputMode={inputMode} maxLength={maxLength} placeholder={placeholder}
-        value={value} onChange={(e) => setValue(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') go() }} />
+      {type === 'password' ? <Secret ref={ref} inputMode={inputMode} maxLength={maxLength} placeholder={placeholder}
+        value={value} onChange={(e) => setValue(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') go() }} /> : <input ref={ref} className="field" type={type} inputMode={inputMode} maxLength={maxLength} placeholder={placeholder}
+        value={value} onChange={(e) => setValue(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') go() }} />}
       <div className="err">{err}</div>
       <div className="btns">
         <button className="btn out" type="button" onClick={onClose}>Annuler</button>
         <button className={danger ? 'btn danger' : 'btn dark'} type="button" disabled={busy} onClick={go}>{submitLabel}</button>
       </div>
     </Sheet>
+  )
+}
+
+/** Champ de code avec un œil pour afficher ou masquer ce qu'on tape. */
+function Secret({ ref, style, ...props }) {
+  const [show, setShow] = useState(false)
+  return (
+    <div className="secret" style={style}>
+      <input ref={ref} className="field" type={show ? 'text' : 'password'} autoComplete="off" {...props} />
+      <button type="button" className="eye" onMouseDown={(e) => e.preventDefault()} onClick={() => setShow((v) => !v)} aria-label={show ? 'Masquer le code' : 'Afficher le code'} aria-pressed={show}>
+        {show
+          ? <svg viewBox="0 0 24 24"><path d="M3 3l18 18M10.6 10.6a2 2 0 0 0 2.8 2.8M9.9 5.1A9.8 9.8 0 0 1 12 5c6 0 9.5 7 9.5 7a17 17 0 0 1-3.1 4M6.6 6.6C3.9 8.4 2.5 12 2.5 12S6 19 12 19a9.6 9.6 0 0 0 5.4-1.6" /></svg>
+          : <svg viewBox="0 0 24 24"><path d="M2.5 12S6 5 12 5s9.5 7 9.5 7-3.5 7-9.5 7S2.5 12 2.5 12z" /><circle cx="12" cy="12" r="3" /></svg>}
+      </button>
+    </div>
   )
 }
 
@@ -133,10 +149,10 @@ function Welcome() {
         <input className="field" type="text" maxLength={60} placeholder="Ex : Chez Lessy" value={name} onChange={(e) => setName(e.target.value)} />
       </>}
       <label className="lbl">{reg ? 'Code d\'accès (4 à 6 chiffres)' : 'Code d\'accès'}</label>
-      <input className="field" type="password" inputMode="numeric" maxLength={6} placeholder="••••" value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, ''))} onKeyDown={(e) => { if (e.key === 'Enter' && !reg) go() }} />
+      <Secret inputMode="numeric" maxLength={6} placeholder="••••" value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, ''))} onKeyDown={(e) => { if (e.key === 'Enter' && !reg) go() }} />
       {reg && <>
         <label className="lbl">Confirmer le code</label>
-        <input className="field" type="password" inputMode="numeric" maxLength={6} placeholder="••••" value={confirm} onChange={(e) => setConfirm(e.target.value.replace(/\D/g, ''))} onKeyDown={(e) => { if (e.key === 'Enter') go() }} />
+        <Secret inputMode="numeric" maxLength={6} placeholder="••••" value={confirm} onChange={(e) => setConfirm(e.target.value.replace(/\D/g, ''))} onKeyDown={(e) => { if (e.key === 'Enter') go() }} />
       </>}
       <div className="err">{err}</div>
       <button className="btn dark" type="button" disabled={busy} onClick={go}>{busy ? (reg ? 'Création…' : 'Restauration…') : (reg ? 'Créer mon compte' : 'Se connecter')}</button>
@@ -177,7 +193,7 @@ function Relogin({ s }) {
       <Brand />
       <h1>Reconnectez-vous</h1>
       <p>Pour continuer à sauvegarder en ligne, entrez le code d'accès du compte {s.account?.phone}. Rien n'est effacé de ce téléphone.</p>
-      <input className="field" type="password" inputMode="numeric" maxLength={6} placeholder="Code" value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, ''))} />
+      <Secret inputMode="numeric" maxLength={6} placeholder="Code" value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, ''))} />
       <div className="err">{err}</div>
       <button className="btn dark" type="button" onClick={async () => {
         try { await store.relogin(code) } catch (e) { setErr(e.message); setCode('') }
@@ -233,9 +249,10 @@ function Main({ s }) {
         type: 'code', title, text, submitLabel, danger,
         onCancel: () => { setModal(null); resolve(false) },
         onSubmit: async (code) => {
-          if (!(await store.checkCode(code))) throw new Error('Code incorrect.')
+          const role = await store.checkCode(code)
+          if (!role) throw new Error('Code incorrect.')
           setModal(null)
-          resolve(true)
+          resolve(role)
         },
       })
     })
@@ -243,9 +260,9 @@ function Main({ s }) {
 
   async function needAdmin() {
     if (admin) return true
-    const ok = await askCode({ title: 'Mode gérant', text: 'Entrez votre code d\'accès pour modifier les noms, les prix et les paiements.', submitLabel: 'Entrer' })
-    if (ok) { setAdmin(true); toast('Mode gérant activé.') }
-    return ok
+    const role = await askCode({ title: 'Mode gérant', text: 'Entrez votre code d\'accès, ou le code admin Ardoise241, pour modifier les noms, les prix et les paiements.', submitLabel: 'Entrer' })
+    if (role) { setAdmin(role); toast(role === 'support' ? 'Mode admin Ardoise241 activé.' : 'Mode gérant activé.') }
+    return !!role
   }
 
   function tap(uid) { setCounts((c) => ({ ...c, [uid]: (c[uid] || 0) + 1 })) }
@@ -332,7 +349,7 @@ function Main({ s }) {
           </div>
           {lockBtn}
         </header>
-        {admin && <div className="pad" style={{ paddingBottom: 0 }}><div className="empty" style={{ padding: 10, fontSize: 14 }}>Mode gérant : touchez ✎ sous une image pour changer la photo, le nom et le prix.</div></div>}
+        {admin && <div className="pad" style={{ paddingBottom: 0 }}><div className="empty" style={{ padding: 10, fontSize: 14 }}>{admin === 'support' ? 'Mode admin Ardoise241' : 'Mode gérant'} : touchez ✎ sous une image pour changer la photo, le nom et le prix.</div></div>}
         <div className="grid">
           {s.foods.map((food) => {
             const n = counts[food.uid] || 0
@@ -659,9 +676,9 @@ function ChangeCode({ onClose, toast }) {
     <Sheet onClose={onClose}>
       <h3>Changer mon code d'accès</h3>
       <p>Il faut internet : le nouveau code sert aussi à retrouver vos données sur un autre téléphone.</p>
-      <input className="field" type="password" inputMode="numeric" maxLength={6} placeholder="Code actuel" value={current} onChange={digits(setCurrent)} style={{ marginBottom: 8 }} />
-      <input className="field" type="password" inputMode="numeric" maxLength={6} placeholder="Nouveau code (4 à 6 chiffres)" value={code} onChange={digits(setCode)} style={{ marginBottom: 8 }} />
-      <input className="field" type="password" inputMode="numeric" maxLength={6} placeholder="Confirmer le nouveau code" value={confirm} onChange={digits(setConfirm)} />
+      <Secret inputMode="numeric" maxLength={6} placeholder="Code actuel" value={current} onChange={digits(setCurrent)} style={{ marginBottom: 8 }} />
+      <Secret inputMode="numeric" maxLength={6} placeholder="Nouveau code (4 à 6 chiffres)" value={code} onChange={digits(setCode)} style={{ marginBottom: 8 }} />
+      <Secret inputMode="numeric" maxLength={6} placeholder="Confirmer le nouveau code" value={confirm} onChange={digits(setConfirm)} />
       <div className="err">{err}</div>
       <div className="btns">
         <button className="btn out" type="button" onClick={onClose}>Annuler</button>

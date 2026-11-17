@@ -184,13 +184,21 @@ export function access() {
   return { ok: true, daysLeft: Math.max(0, Math.ceil((a.endsAt - now()) / 86400000)) }
 }
 
+async function sha256(text) {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text))
+  return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, '0')).join('')
+}
+
+/**
+ * Vérifie un code sans réseau. Renvoie le rôle qu'il ouvre :
+ * 'owner' (code du compte), 'support' (code admin Ardoise241) ou false.
+ */
 export async function checkCode(code) {
-  const local = state.account?.local
-  if (!local || !/^\d{4,6}$/.test(code)) return false
-  const bytes = new TextEncoder().encode(local.salt + code)
-  const digest = await crypto.subtle.digest('SHA-256', bytes)
-  const hex = Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, '0')).join('')
-  return hex === local.hash
+  if (!/^\d{4,6}$/.test(code)) return false
+  const { local, support } = state.account || {}
+  if (local && (await sha256(local.salt + code)) === local.hash) return 'owner'
+  if (support && (await sha256(support.salt + code)) === support.hash) return 'support'
+  return false
 }
 
 export async function changeCode(current, code, confirm) {
