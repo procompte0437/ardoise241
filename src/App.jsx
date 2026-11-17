@@ -266,7 +266,7 @@ function Main({ s }) {
 
   async function needAdmin() {
     if (admin) return true
-    const role = await askCode({ title: 'Mode gérant', text: 'Entrez votre code d\'accès, ou le code admin Ardoise241, pour modifier les noms, les prix et les paiements.', submitLabel: 'Entrer' })
+    const role = await askCode({ title: 'Mode gérant', text: 'Entrez votre code d\'accès, ou le code admin Ardoise241, pour modifier les noms, les images et les prix.', submitLabel: 'Entrer' })
     if (role) { setAdmin(role); toast(role === 'support' ? 'Mode admin Ardoise241 activé.' : 'Mode gérant activé.') }
     return !!role
   }
@@ -431,7 +431,7 @@ function Main({ s }) {
         <div className="pad">
           <div className="actions">
             <button className="btn dark" type="button" onClick={() => openCalc(person.uid)}>Nouvelle session (images)</button>
-            <button className="btn out" type="button" onClick={async () => { if (await needAdmin()) setModal({ type: 'pay' }) }}>Enregistrer un paiement</button>
+            <button className="btn out" type="button" onClick={() => setModal({ type: 'pay' })}>Enregistrer un paiement</button>
             <button className="btn out" type="button" onClick={async () => {
               if (!list.length) return toast('Le bilan est déjà vide.')
               const ok = await askCode({ title: 'Effacer le bilan', text: 'Le bilan de ' + person.name + ' (' + fmt(debts[person.uid]) + ') sera effacé. Entrez votre code pour confirmer.', submitLabel: 'Effacer', danger: true })
