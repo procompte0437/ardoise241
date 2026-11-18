@@ -244,3 +244,5 @@ button.frow{width:100%;text-align:left;cursor:pointer}
 .pays li b{color:var(--red);font-variant-numeric:tabular-nums}
 .row2{display:flex;gap:8px}
 .row2 .field{flex:1;min-width:0}
+
+.lockscreen .appname{font-family:inherit;font-size:24px;font-weight:800;color:#1A1612;margin:4px 0 10px;letter-spacing:.01em}

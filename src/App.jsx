@@ -183,6 +183,7 @@ function Welcome() {
   return (
     <div className="lockscreen form">
       <Brand />
+      <div className="appname">Lessy aimé Rodrigue</div>
       <h1>{reg ? 'Créer mon compte' : 'Connexion'}</h1>
       <p>{reg
         ? 'Votre numéro sert d\'identifiant. Choisissez un code d\'accès et confirmez-le.'
@@ -263,6 +264,8 @@ function Relogin({ s }) {
 export default function App() {
   const s = useStore()
   useEffect(() => { store.boot() }, [])
+  // Avant connexion : « Lessy aimé Rodrigue » ; une fois connecté : « Ardoise241 ».
+  useEffect(() => { document.title = s.token ? 'Ardoise241' : 'Lessy aimé Rodrigue' }, [s.token])
 
   if (!s.ready) return <div className="pad"><div className="empty">Chargement…</div></div>
   if (!s.token) return <Welcome />
@@ -381,7 +384,7 @@ function Main({ s }) {
       <>
         <header className="top">
           <div className="grow">
-            <h1>Lessy aimé Rodrigue</h1>
+            <h1>Ardoise241</h1>
             <p>{s.account?.name || s.account?.phone}{days <= 15 ? ' · essai : ' + days + ' j restants' : ''}</p>
           </div>
           {/* La synchro se fait sans bruit : l'état n'est visible qu'en mode gérant / admin. */}
