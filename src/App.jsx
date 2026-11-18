@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import * as store from './store'
+import { App as NativeApp } from '@capacitor/app'
 
 const fmt = (n) => Number(n || 0).toLocaleString('fr-FR') + ' F'
 const hour = (t) => new Date(t).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })
@@ -29,7 +30,25 @@ function finePointer() {
   try { return window.matchMedia('(pointer: fine)').matches } catch { return false }
 }
 
+// Bouton retour du téléphone : les fenêtres ouvertes s'empilent ici pour être
+// fermées en premier, avant de revenir à la page précédente.
+const openSheets = []
+
+export function handleBack() {
+  if (openSheets.length) { openSheets[openSheets.length - 1].current(); return true }
+  const back = document.querySelector('button.back')
+  if (back) { back.click(); return true }
+  return false // accueil ou connexion : rien à fermer
+}
+if (import.meta.env.DEV) window.__back = handleBack // pour les tests
+
 function Sheet({ dialog, onClose, children }) {
+  const closeRef = useRef(onClose)
+  closeRef.current = onClose
+  useEffect(() => {
+    openSheets.push(closeRef)
+    return () => { const i = openSheets.indexOf(closeRef); if (i >= 0) openSheets.splice(i, 1) }
+  }, [])
   // Sur téléphone, toucher un champ ouvre le clavier : la fenêtre remonte et le
   // « clic » qui suit peut tomber sur le fond. On ne ferme donc que si le toucher
   // a commencé ET fini sur le fond, jamais quand il a commencé dans la fenêtre.
@@ -264,6 +283,13 @@ function Relogin({ s }) {
 export default function App() {
   const s = useStore()
   useEffect(() => { store.boot() }, [])
+  useEffect(() => {
+    if (!window.Capacitor?.isNativePlatform?.()) return
+    // Retour Android : fermer la fenêtre ou revenir en arrière ; à l'accueil,
+    // l'application passe en arrière-plan au lieu de se fermer.
+    const sub = NativeApp.addListener('backButton', () => { if (!handleBack()) NativeApp.minimizeApp() })
+    return () => { sub.then((h) => h.remove()) }
+  }, [])
   // Avant connexion : « Lessy aimé Rodrigue » ; une fois connecté : « Ardoise241 ».
   useEffect(() => { document.title = s.token ? 'Ardoise241' : 'Lessy aimé Rodrigue' }, [s.token])
 
