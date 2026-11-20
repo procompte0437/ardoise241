@@ -254,21 +254,19 @@ button.frow{width:100%;text-align:left;cursor:pointer}
 .top .menu i{position:absolute;top:-7px;right:-7px;box-shadow:0 0 0 2px var(--k)}
 .top .grow{flex:1;min-width:0}
 
-.drawer-ov{position:fixed;inset:0;z-index:25;background:rgba(10,8,6,.55);backdrop-filter:blur(2px);animation:fadein .18s ease-out}
-.drawer{position:absolute;top:0;bottom:0;left:0;width:min(84vw,320px);background:var(--k);color:var(--y);display:flex;flex-direction:column;padding:calc(18px + env(safe-area-inset-top)) 12px calc(14px + env(safe-area-inset-bottom));box-shadow:12px 0 40px rgba(0,0,0,.45);animation:slidein .22s cubic-bezier(.2,.8,.2,1);overflow-y:auto}
-.drawer .dh{display:flex;align-items:center;gap:12px;padding:4px 8px 18px;border-bottom:1px solid rgba(237,190,46,.2);margin-bottom:10px}
-.drawer .dflag{width:48px;height:48px;border-radius:14px;box-shadow:0 4px 12px rgba(0,0,0,.4)}
-.drawer .dh b{display:block;font-family:'Baloo 2','Inter',sans-serif;font-size:24px;font-weight:800;line-height:1}
-.drawer .dh small{display:block;font-size:12px;opacity:.75;margin-top:3px}
-.drawer ul{list-style:none;margin:0;padding:0;flex:1}
-.drawer li button{width:100%;display:flex;align-items:center;gap:12px;padding:12px;border-radius:14px;color:var(--y);font-weight:700;font-size:16px;text-align:left;transition:background .15s}
-.drawer li button:active{background:rgba(237,190,46,.12)}
-.drawer li button.on{background:var(--y);color:var(--k)}
-.drawer .di{width:28px;text-align:center;font-size:20px}
-.drawer .dl{flex:1}
-.drawer .dsep{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.1em;opacity:.5;padding:14px 12px 6px}
-.drawer .dfoot{padding-top:10px;border-top:1px solid rgba(237,190,46,.2)}
-.drawer .dadd{width:100%;padding:12px;border:2px dashed var(--y);border-radius:14px;color:var(--y);font-weight:800}
+.sidenav .dh{display:flex;align-items:center;gap:12px;padding:4px 8px 18px;border-bottom:1px solid rgba(237,190,46,.2);margin-bottom:10px}
+.sidenav .dflag{width:48px;height:48px;border-radius:14px;box-shadow:0 4px 12px rgba(0,0,0,.4)}
+.sidenav .dh b{display:block;font-family:'Baloo 2','Inter',sans-serif;font-size:24px;font-weight:800;line-height:1}
+.sidenav .dh small{display:block;font-size:12px;opacity:.75;margin-top:3px}
+.sidenav ul{list-style:none;margin:0;padding:0;flex:1}
+.sidenav li button{width:100%;display:flex;align-items:center;gap:12px;padding:12px;border-radius:14px;color:var(--y);font-weight:700;font-size:16px;text-align:left;transition:background .15s}
+.sidenav li button:active{background:rgba(237,190,46,.12)}
+.sidenav li button.on{background:var(--y);color:var(--k)}
+.sidenav .di{width:28px;text-align:center;font-size:20px}
+.sidenav .dl{flex:1}
+.sidenav .dsep{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.1em;opacity:.5;padding:14px 12px 6px}
+.sidenav .dfoot{padding-top:10px;border-top:1px solid rgba(237,190,46,.2)}
+.sidenav .dadd{width:100%;padding:12px;border:2px dashed var(--y);border-radius:14px;color:var(--y);font-weight:800}
 @keyframes slidein{from{transform:translateX(-100%)}to{transform:none}}
 @keyframes fadein{from{opacity:0}to{opacity:1}}
 
@@ -396,3 +394,34 @@ button.frow{width:100%;text-align:left;cursor:pointer}
 .shopcard .due{align-self:flex-start;margin-top:6px;background:var(--red);color:#fff;font-weight:900;font-size:13px;border-radius:999px;padding:4px 10px}
 .shopcard .go{align-self:flex-start;margin-top:6px;font-weight:900;font-size:14px}
 .addshop{width:100%;margin-top:14px;padding:16px;border:3px dashed var(--k);border-radius:18px;font-weight:900;font-size:16px;background:rgba(255,243,208,.5)}
+
+/* Menu latéral fixe : la page se décale pour lui laisser la place. */
+:root{--navw:64px}
+@media(min-width:900px){:root{--navw:268px}}
+body.nav-on{padding-left:var(--navw)}
+body.nav-on .bar{left:var(--navw)}
+.sidenav{position:fixed;top:0;bottom:0;left:0;width:var(--navw);z-index:15;background:var(--k);color:var(--y);display:flex;flex-direction:column;padding:calc(14px + env(safe-area-inset-top)) 8px calc(10px + env(safe-area-inset-bottom));box-shadow:6px 0 24px rgba(0,0,0,.3);overflow-y:auto;overflow-x:hidden;animation:slidein .22s cubic-bezier(.2,.8,.2,1)}
+.sidenav .dh{padding:2px 2px 14px;justify-content:center}
+.sidenav .dflag{width:44px;height:44px}
+.sidenav li button,.sidenav .dhide,.sidenav .dadd{position:relative;justify-content:center;padding:11px 0;gap:0}
+.sidenav .dl,.sidenav .dt,.sidenav .dsep{display:none}
+.sidenav .dsep{display:block;height:1px;padding:0;margin:8px 6px;background:rgba(237,190,46,.2);font-size:0}
+.sidenav .di{width:auto;font-size:22px}
+.sidenav .dbadge{position:absolute;top:2px;right:2px;min-width:18px;height:18px;font-size:11px;padding:0 4px}
+.sidenav .dhide{display:flex;align-items:center;width:100%;margin-top:8px;border-radius:14px;color:var(--y);opacity:.75;font-weight:800}
+.sidenav .dhide .di{font-size:20px}
+.sidenav .dadd{display:flex;align-items:center}
+@media(min-width:900px){
+  .sidenav{padding-left:12px;padding-right:12px}
+  .sidenav .dh{justify-content:flex-start;padding:4px 8px 18px}
+  .sidenav .dflag{width:48px;height:48px}
+  .sidenav .dt{display:block}
+  .sidenav .dl{display:inline;flex:1;text-align:left}
+  .sidenav li button,.sidenav .dhide,.sidenav .dadd{justify-content:flex-start;padding:12px;gap:12px}
+  .sidenav .di{width:28px;text-align:center;font-size:20px}
+  .sidenav .dsep{display:block;height:auto;margin:0;background:none;font-size:11px;padding:14px 12px 6px}
+  .sidenav .dbadge{position:static}
+}
+.kvedit{display:flex;flex-direction:column;align-items:flex-end;text-align:right}
+.kvedit span{font-size:12px;font-weight:800;text-decoration:underline;opacity:.8}
+@media(max-width:899px){body.nav-on .bar .in{gap:6px}body.nav-on .bar .btn{padding:11px 10px;font-size:15px}body.nav-on .bar .btn.line{padding:10px 8px}body.nav-on .bar .tot b{font-size:20px}body.nav-on .chipbil{display:none}}

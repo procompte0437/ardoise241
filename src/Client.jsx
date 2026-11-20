@@ -3,14 +3,14 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import * as store from './store'
 import { Sheet, fmt, when, Bilan, ChangeCode } from './App.jsx'
-import { Drawer, MenuButton, StatusPill, Avatar, ago, OrderItems, Offline } from './Shop.jsx'
+import { SideNav, useNavOpen, MenuButton, StatusPill, Avatar, ago, OrderItems, Offline } from './Shop.jsx'
 
 const STEPS = ['envoyee', 'acceptee', 'prete', 'livree']
 
 export default function Customer({ s }) {
   const [view, setView] = useState('home') // home | shop | orders | bons | messages | account
   const [shopId, setShopId] = useState(null)
-  const [drawer, setDrawer] = useState(false)
+  const [navOpen, setNavOpen] = useNavOpen('ardoise241_nav_client')
   const [adding, setAdding] = useState(false)
   const [toastMsg, setToastMsg] = useState('')
   const [toastOn, setToastOn] = useState(false)
@@ -59,7 +59,7 @@ export default function Customer({ s }) {
     body = (
       <>
         <header className="top">
-          <MenuButton onClick={() => setDrawer(true)} badge={unread} />
+          <MenuButton onClick={() => setNavOpen(!navOpen)} badge={navOpen ? 0 : unread} />
           <div className="grow"><h1>Ardoise241</h1><p>Bonjour {first || s.account?.phone} 👋</p></div>
         </header>
         <Offline s={s} />
@@ -120,10 +120,10 @@ export default function Customer({ s }) {
   return (
     <>
       {body}
-      {drawer && (
-        <Drawer title="Ardoise241" subtitle={(s.account?.name || '') + ' · espace client'} items={items} current={view}
-          onPick={setView} onClose={() => setDrawer(false)}
-          footer={<button type="button" className="dadd" onClick={() => { setDrawer(false); setAdding(true) }}>＋ Ajouter une boutique</button>} />
+      {navOpen && (
+        <SideNav title="Ardoise241" subtitle={(s.account?.name || '') + ' · espace client'} items={items} current={view === 'shop' ? 'home' : view}
+          onPick={setView} onHide={() => setNavOpen(false)}
+          footer={<button type="button" className="dadd" title="Ajouter une boutique" onClick={() => setAdding(true)}><span className="di">＋</span><span className="dl">Ajouter une boutique</span></button>} />
       )}
       {adding && <AddShop onClose={() => setAdding(false)} toast={toast} onOpen={(id) => { setAdding(false); setShopId(id); setView('shop') }} />}
       <div id="toast" className={toastOn ? 'on' : ''}>{toastMsg}</div>

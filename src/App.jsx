@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'reac
 import * as store from './store'
 import { App as NativeApp } from '@capacitor/app'
 import Customer from './Client.jsx'
-import { Drawer, MenuButton, OrdersView, ClientsView, ClientView, MessagesView } from './Shop.jsx'
+import { SideNav, useNavOpen, MenuButton, OrdersView, ClientsView, ClientView, MessagesView } from './Shop.jsx'
 
 export const fmt = (n) => Number(n || 0).toLocaleString('fr-FR') + ' F'
 export const hour = (t) => new Date(t).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })
@@ -328,7 +328,8 @@ function Main({ s }) {
   const [q, setQ] = useState('')
   const [admin, setAdmin] = useState(false)
   const [modal, setModal] = useState(null)
-  const [drawer, setDrawer] = useState(false)
+  const [navOpen, setNavOpen] = useNavOpen('ardoise241_nav')
+  const showNav = !!admin && navOpen // menu latéral : seulement en mode gérant
   const [clientId, setClientId] = useState(null) // fiche client ouverte (Mes clients)
   const [bilanBack, setBilanBack] = useState('cahier')
   const [toastMsg, setToastMsg] = useState('')
@@ -359,9 +360,6 @@ function Main({ s }) {
     { key: 'inventaire', icon: '📊', label: 'Fiche d\'inventaire' },
     { key: 'settings', icon: '⚙️', label: 'Réglages' },
   ]
-  // Mode gérant fermé : le menu latéral se referme aussi.
-  useEffect(() => { if (!admin) setDrawer(false) }, [admin])
-
   async function pickMenu(key) {
     if (key === 'calc') return openCalc(null)
     if (key === 'cahier') setQ('')
@@ -466,7 +464,7 @@ function Main({ s }) {
       <>
         <header className="top">
           {/* Le menu latéral n'apparaît qu'en mode gérant (après le code, via Réglages). */}
-          {admin && <MenuButton onClick={() => setDrawer(true)} badge={newOrders} />}
+          {admin && <MenuButton onClick={() => setNavOpen(!navOpen)} badge={showNav ? 0 : newOrders} />}
           <div className="grow">
             <h1>Ardoise241</h1>
             <p>{s.account?.name || s.account?.phone}{days <= 15 ? ' · essai : ' + days + ' j restants' : ''}</p>
@@ -612,9 +610,9 @@ function Main({ s }) {
   return (
     <>
       {body}
-      {drawer && (
-        <Drawer title="Ardoise241" subtitle={(s.account?.name || s.account?.phone) + ' · commerçant'} items={menuItems}
-          current={view === 'client' ? 'clients' : view === 'bilan' ? 'cahier' : view} onPick={pickMenu} onClose={() => setDrawer(false)} />
+      {showNav && (
+        <SideNav title="Ardoise241" subtitle={(s.account?.name || s.account?.phone) + ' · commerçant'} items={menuItems}
+          current={view === 'client' ? 'clients' : view === 'bilan' ? 'cahier' : view} onPick={pickMenu} onHide={() => setNavOpen(false)} />
       )}
       {modal?.type === 'calcBilan' && (() => {
         const who = calcFor ? s.people.find((p) => p.uid === calcFor) : null
@@ -681,6 +679,16 @@ function Main({ s }) {
       {modal?.type === 'payBon' && person && <PayBon person={person} bon={modal.bon} onClose={() => setModal(null)} toast={toast} />}
       {modal?.type === 'editFood' && <EditFood food={s.foods.find((f) => f.uid === modal.uid)} img={s.images[modal.uid]?.url} onClose={() => setModal(null)} toast={toast} />}
       {modal?.type === 'changeCode' && <ChangeCode onClose={() => setModal(null)} toast={toast} />}
+      {modal?.type === 'shopName' && (
+        <FieldModal title="Nom de la boutique" text="Vos clients trouvent votre boutique par ce nom et le voient sur leurs commandes." type="text"
+          initial={s.account?.name || ''} placeholder="Ex : Chez Lessy" maxLength={60} submitLabel="Enregistrer"
+          onClose={() => setModal(null)}
+          onSubmit={async (name) => {
+            const sent = await store.renameAccount(name)
+            setModal(null)
+            toast(sent ? 'Nom de la boutique enregistré.' : 'Nom enregistré : il sera envoyé en ligne dès la connexion.')
+          }} />
+      )}
       <div id="toast" className={toastOn ? 'on' : ''}>{toastMsg}</div>
     </>
   )
@@ -942,6 +950,7 @@ function Settings({ s, back, openFoods, toast, setModal }) {
       </header>
       <div className="pad">
         <div className="card">
+          <div className="kv"><span>Nom de la boutique</span><button type="button" className="kvedit" onClick={() => setModal({ type: 'shopName' })}><b>{a.name || 'Sans nom'}</b><span>✎ Modifier</span></button></div>
           <div className="kv"><span>Compte</span><b>{a.phone}</b></div>
           <div className="kv"><span>{a.status === 'abonne' ? 'Abonné jusqu\'au' : 'Essai gratuit jusqu\'au'}</span><b>{end.toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' })}</b></div>
           <div className="kv"><span>Jours restants</span><b>{store.access().daysLeft}</b></div>

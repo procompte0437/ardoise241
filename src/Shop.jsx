@@ -1,37 +1,53 @@
 // Espace commerçant : menu latéral, commandes des clients, suivi des clients et messages.
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import * as store from './store'
-import { Sheet, fmt, when, hour, dayLabel, useBackClose } from './App.jsx'
+import { Sheet, fmt, when, hour, dayLabel } from './App.jsx'
 
 // ------------------------------------------------------------------ menu latéral
 
-/** Menu latéral (sidebar) : glisse depuis la gauche, se ferme au toucher du fond ou au bouton retour. */
-export function Drawer({ title, subtitle, items, current, onPick, onClose, footer }) {
-  useBackClose(onClose)
+/**
+ * Menu latéral (sidebar) fixe : il reste affiché pendant qu'on passe d'une page à
+ * l'autre, jusqu'à ce qu'on le masque (bouton ☰ ou « Masquer »). Sur un grand écran
+ * il montre les libellés ; sur téléphone c'est une colonne d'icônes, pour laisser
+ * la place à la page.
+ */
+export function SideNav({ title, subtitle, items, current, onPick, onHide, footer }) {
+  useEffect(() => {
+    document.body.classList.add('nav-on')
+    return () => document.body.classList.remove('nav-on')
+  }, [])
   return (
-    <div className="drawer-ov" onClick={(e) => { if (e.target === e.currentTarget) onClose() }}>
-      <nav className="drawer" aria-label="Menu">
-        <div className="dh">
-          <img className="dflag" src="/flag.png" alt="" />
-          <div><b>{title}</b><small>{subtitle}</small></div>
-        </div>
-        <ul>
-          {items.map((it) => it.sep
-            ? <li key={it.key} className="dsep">{it.label}</li>
-            : (
-              <li key={it.key}>
-                <button type="button" className={current === it.key ? 'on' : ''} onClick={() => { onClose(); onPick(it.key) }}>
-                  <span className="di">{it.icon}</span>
-                  <span className="dl">{it.label}</span>
-                  {it.badge > 0 && <span className="dbadge">{it.badge}</span>}
-                </button>
-              </li>
-            ))}
-        </ul>
-        {footer && <div className="dfoot">{footer}</div>}
-      </nav>
-    </div>
+    <nav className="sidenav" aria-label="Menu">
+      <div className="dh">
+        <img className="dflag" src="/flag.png" alt="" />
+        <div className="dt"><b>{title}</b><small>{subtitle}</small></div>
+      </div>
+      <ul>
+        {items.map((it) => it.sep
+          ? <li key={it.key} className="dsep">{it.label}</li>
+          : (
+            <li key={it.key}>
+              <button type="button" className={current === it.key ? 'on' : ''} title={it.label} aria-label={it.label} onClick={() => onPick(it.key)}>
+                <span className="di">{it.icon}</span>
+                <span className="dl">{it.label}</span>
+                {it.badge > 0 && <span className="dbadge">{it.badge}</span>}
+              </button>
+            </li>
+          ))}
+      </ul>
+      {footer && <div className="dfoot">{footer}</div>}
+      <button type="button" className="dhide" onClick={onHide} title="Masquer le menu" aria-label="Masquer le menu">
+        <span className="di">«</span><span className="dl">Masquer le menu</span>
+      </button>
+    </nav>
   )
+}
+
+/** Menu affiché ou masqué : le choix est gardé sur le téléphone. */
+export function useNavOpen(key) {
+  const [open, setOpen] = useState(() => { try { return localStorage.getItem(key) === '1' } catch { return false } })
+  useEffect(() => { try { localStorage.setItem(key, open ? '1' : '0') } catch { /* sans importance */ } }, [key, open])
+  return [open, setOpen]
 }
 
 export function MenuButton({ onClick, badge }) {

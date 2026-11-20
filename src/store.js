@@ -158,6 +158,9 @@ async function startSession(data) {
 }
 
 async function saveAccount(account) {
+  // Un nouveau nom pas encore envoyé reste affiché, même si le serveur renvoie l'ancien.
+  const pending = [...(state.outbox || [])].reverse().find((a) => a.kind === 'profile')
+  if (pending) account = { ...account, name: pending.json.name }
   state.account = account
   state.clockOffset = account.serverTime ? account.serverTime - Date.now() : state.clockOffset
   await db.meta.set('account', account)
@@ -879,4 +882,15 @@ export async function sendShopMessage({ kind, title, body, to }) {
     await saveCommerce()
   }
   return queue({ kind: 'message', path: '/api/app/messages', json: msg })
+}
+
+/** Nom du commerce : changé tout de suite sur le téléphone, envoyé dès qu'il y a du réseau. */
+export async function renameAccount(name) {
+  const value = String(name || '').trim().slice(0, 60)
+  if (!value) throw new Error('Entrez le nom de votre boutique.')
+  state.outbox = state.outbox.filter((a) => a.kind !== 'profile') // seul le dernier nom compte
+  await saveOutbox()
+  await saveAccount({ ...state.account, name: value })
+  emit()
+  return queue({ kind: 'profile', path: '/api/app/profile', json: { name: value } })
 }
