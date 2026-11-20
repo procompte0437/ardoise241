@@ -359,6 +359,9 @@ function Main({ s }) {
     { key: 'inventaire', icon: '📊', label: 'Fiche d\'inventaire' },
     { key: 'settings', icon: '⚙️', label: 'Réglages' },
   ]
+  // Mode gérant fermé : le menu latéral se referme aussi.
+  useEffect(() => { if (!admin) setDrawer(false) }, [admin])
+
   async function pickMenu(key) {
     if (key === 'calc') return openCalc(null)
     if (key === 'cahier') setQ('')
@@ -462,13 +465,15 @@ function Main({ s }) {
     body = (
       <>
         <header className="top">
-          <MenuButton onClick={() => setDrawer(true)} badge={newOrders} />
+          {/* Le menu latéral n'apparaît qu'en mode gérant (après le code, via Réglages). */}
+          {admin && <MenuButton onClick={() => setDrawer(true)} badge={newOrders} />}
           <div className="grow">
             <h1>Ardoise241</h1>
             <p>{s.account?.name || s.account?.phone}{days <= 15 ? ' · essai : ' + days + ' j restants' : ''}</p>
           </div>
           {/* La synchro se fait sans bruit : l'état n'est visible qu'en mode gérant / admin. */}
           {admin && <SyncDot s={s} />}
+          {admin && lockBtn}
         </header>
         <div className="pad home">
           <button className="hero" type="button" onClick={() => openCalc(null)}>
