@@ -1,6 +1,7 @@
 // Espace commerçant : menu latéral, commandes des clients, suivi des clients et messages.
 import { useEffect, useMemo, useState } from 'react'
 import * as store from './store'
+import * as pdf from './pdf'
 import { Sheet, fmt, when, hour, dayLabel, useBackClose } from './App.jsx'
 
 // ------------------------------------------------------------------ menu latéral
@@ -42,6 +43,24 @@ export function SideNav({ title, subtitle, items, current, onPick, onHide, foote
 // eslint-disable-next-line no-unused-vars
 export function useNavOpen(key) {
   return useState(false)
+}
+
+/** Bouton « PDF » des en-têtes : fabrique le PDF sur le téléphone puis le partage. */
+export function PdfButton({ run, toast, label = 'PDF' }) {
+  const [busy, setBusy] = useState(false)
+  return (
+    <button className="pdfbtn" type="button" disabled={busy} aria-label="Exporter en PDF" onClick={async () => {
+      setBusy(true)
+      try {
+        const file = await run()
+        if (!window.Capacitor?.isNativePlatform?.()) toast?.('PDF téléchargé.')
+      } catch (e) {
+        toast?.('PDF impossible : ' + (e?.message || e))
+      } finally {
+        setBusy(false)
+      }
+    }}>{busy ? '…' : '📄 ' + label}</button>
+  )
 }
 
 export function MenuButton({ onClick, badge }) {
@@ -128,6 +147,7 @@ export function OrdersView({ s, back, toast }) {
       <header className="top">
         <button className="back" type="button" onClick={back} aria-label="Retour">‹</button>
         <div className="grow"><h1>Commandes</h1><p>{orders.filter((o) => o.status === 'envoyee').length} nouvelle(s) · {orders.filter((o) => o.status === 'acceptee' || o.status === 'prete').length} en cours</p></div>
+        <PdfButton run={pdf.orders} toast={toast} />
       </header>
       <Offline s={s} />
       <div className="pad">
@@ -241,7 +261,7 @@ const CLIENT_TABS = [
   { key: 'prospect', label: 'Prospects', match: (c) => c.status === 'prospect' },
 ]
 
-export function ClientsView({ s, back, open }) {
+export function ClientsView({ s, back, open, toast }) {
   const customers = useCustomers(s)
   const [tab, setTab] = useState('all')
   const [q, setQ] = useState('')
@@ -255,6 +275,7 @@ export function ClientsView({ s, back, open }) {
       <header className="top">
         <button className="back" type="button" onClick={back} aria-label="Retour">‹</button>
         <div className="grow"><h1>Mes clients</h1><p>{clients.length} client(s) · {customers.length - clients.length} prospect(s)</p></div>
+        <PdfButton run={pdf.clients} toast={toast} />
       </header>
       <Offline s={s} />
       <div className="pad">

@@ -2,7 +2,8 @@ import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'reac
 import * as store from './store'
 import { App as NativeApp } from '@capacitor/app'
 import Customer from './Client.jsx'
-import { SideNav, useNavOpen, MenuButton, OrdersView, ClientsView, ClientView, MessagesView } from './Shop.jsx'
+import * as pdf from './pdf'
+import { SideNav, useNavOpen, MenuButton, PdfButton, OrdersView, ClientsView, ClientView, MessagesView } from './Shop.jsx'
 
 export const fmt = (n) => Number(n || 0).toLocaleString('fr-FR') + ' F'
 export const hour = (t) => new Date(t).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })
@@ -623,6 +624,7 @@ function Main({ s }) {
         <header className="top">
           <button className="back" type="button" onClick={() => setView('home')} aria-label="Retour">‹</button>
           <div className="grow"><h1>Cahier Bon</h1><p>{owing.length} client(s) avec un bon · {fmt(owing.reduce((a, b) => a + b, 0))}</p></div>
+          <PdfButton run={pdf.cahier} toast={toast} />
           {lockBtn}
         </header>
         <div className="pad">
@@ -639,6 +641,7 @@ function Main({ s }) {
         <header className="top">
           <button className="back" type="button" onClick={() => setView(bilanBack)} aria-label="Retour">‹</button>
           <div className="grow"><h1>{person.name}</h1><p>Bilan</p></div>
+          <PdfButton run={() => pdf.bilan(person)} toast={toast} />
           {lockBtn}
         </header>
         <div className="pad">
@@ -659,13 +662,13 @@ function Main({ s }) {
   } else if (view === 'orders') {
     body = <OrdersView s={s} back={() => setView('home')} toast={toast} />
   } else if (view === 'clients') {
-    body = <ClientsView s={s} back={() => setView('home')} open={(id) => { setClientId(id); setView('client') }} />
+    body = <ClientsView s={s} toast={toast} back={() => setView('home')} open={(id) => { setClientId(id); setView('client') }} />
   } else if (view === 'client') {
     body = <ClientView s={s} id={clientId} back={() => setView('clients')} openBons={(uid) => openBilan(uid, 'client')} />
   } else if (view === 'messages') {
     body = <MessagesView s={s} back={() => setView('home')} toast={toast} />
   } else if (view === 'inventaire') {
-    body = <Inventory s={s} back={() => setView('home')} />
+    body = <Inventory s={s} toast={toast} back={() => setView('home')} />
   } else if (view === 'settings') {
     body = <Settings s={s} back={() => setView('home')} openFoods={() => setView('foods')} toast={toast} setModal={setModal} />
   } else if (view === 'foods') {
@@ -936,7 +939,7 @@ function periodRange(key) {
 }
 
 /** Fiche d'inventaire : calculée sur le téléphone, donc disponible hors ligne. */
-function Inventory({ s, back }) {
+function Inventory({ s, back, toast }) {
   const [period, setPeriod] = useState('today')
   const inv = useMemo(() => {
     const [from, to] = periodRange(period)
@@ -955,6 +958,10 @@ function Inventory({ s, back }) {
       <header className="top">
         <button className="back" type="button" onClick={back} aria-label="Retour">‹</button>
         <div className="grow"><h1>Fiche d'inventaire</h1><p>Disponible hors ligne · sauvegardée en ligne</p></div>
+        <PdfButton toast={toast} run={() => {
+          const [from, to] = periodRange(period)
+          return pdf.inventory(from, to, (PERIODS.find((p) => p.key === period)?.label || period).toLowerCase())
+        }} />
       </header>
       <div className="pad">
         <div className="periods" role="tablist">
@@ -1028,6 +1035,10 @@ function Settings({ s, back, openFoods, toast, setModal }) {
           <div className="kv"><span>Dernière synchro</span><b>{last ? last.toLocaleString('fr-FR', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : 'jamais'}</b></div>
           {s.sync.error && <div className="kv"><span>Problème</span><b className="red">{s.sync.error}</b></div>}
           <button className="btn out wide" type="button" onClick={() => store.sync().then(() => toast(store.getState().sync.error || 'Synchronisé.'))}>Synchroniser maintenant</button>
+        </div>
+        <div className="card">
+          <p className="hint left" style={{ margin: 0 }}>Cahier Bon, fiches clients, inventaire, commandes et clients dans un seul PDF.</p>
+          <PdfButton run={pdf.everything} toast={toast} label="Exporter tout en PDF" />
         </div>
         <button className="btn dark wide" type="button" onClick={openFoods}>Images et prix</button>
         <button className="btn out wide" type="button" onClick={() => setModal({ type: 'changeCode' })}>Changer mon code d'accès</button>

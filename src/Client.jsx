@@ -2,8 +2,9 @@
 // suivi des commandes, bons et paiements, messages des boutiques.
 import { useEffect, useMemo, useRef, useState } from 'react'
 import * as store from './store'
+import * as pdf from './pdf'
 import { Sheet, fmt, when, Bilan, ChangeCode } from './App.jsx'
-import { SideNav, useNavOpen, MenuButton, StatusPill, Avatar, ago, OrderItems, Offline } from './Shop.jsx'
+import { SideNav, useNavOpen, MenuButton, PdfButton, StatusPill, Avatar, ago, OrderItems, Offline } from './Shop.jsx'
 
 const STEPS = ['envoyee', 'acceptee', 'prete', 'livree']
 
@@ -98,7 +99,7 @@ export default function Customer({ s }) {
   } else if (view === 'orders') {
     body = (
       <>
-        <header className="top">{back}<div className="grow"><h1>Mes commandes</h1><p>{active} en cours</p></div></header>
+        <header className="top">{back}<div className="grow"><h1>Mes commandes</h1><p>{active} en cours</p></div><PdfButton run={pdf.orders} toast={toast} /></header>
         <Offline s={s} />
         <div className="pad">
           {orders.length === 0 && <div className="empty">Aucune commande. Ouvrez une boutique pour commander.</div>}
@@ -107,7 +108,7 @@ export default function Customer({ s }) {
       </>
     )
   } else if (view === 'bons') {
-    body = <MyBons shops={shops} back={back} />
+    body = <MyBons shops={shops} back={back} toast={toast} />
   } else if (view === 'messages') {
     body = <MyMessages s={s} back={back} />
   } else if (view === 'account') {
@@ -286,13 +287,13 @@ function CustomerOrder({ o, toast }) {
   )
 }
 
-function MyBons({ shops, back }) {
+function MyBons({ shops, back, toast }) {
   const withBons = shops.filter((sh) => (sh.entries || []).some((e) => !e.pay))
   const [pick, setPick] = useState(null)
   const cur = withBons.find((sh) => sh.id === pick) || withBons[0]
   return (
     <>
-      <header className="top">{back}<div className="grow"><h1>Mes bons</h1><p>Je dois {fmt(shops.reduce((a, sh) => a + sh.owing, 0))} au total</p></div></header>
+      <header className="top">{back}<div className="grow"><h1>Mes bons</h1><p>Je dois {fmt(shops.reduce((a, sh) => a + sh.owing, 0))} au total</p></div><PdfButton run={() => pdf.myBons(shops)} toast={toast} /></header>
       <div className="pad">
         {withBons.length === 0 && <div className="empty">Aucun bon : vous ne devez rien. 🎉</div>}
         {withBons.length > 1 && (

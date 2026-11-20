@@ -427,3 +427,9 @@ button.frow{width:100%;text-align:left;cursor:pointer}
 .shoppick .pn b{font-size:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .shoppick .pn small{font-size:12px;opacity:.75}
 .linkbtn{text-decoration:underline;font-weight:800}
+
+/* Bouton « PDF » des en-têtes et des réglages. */
+.pdfbtn{flex:none;border:2px solid var(--y);color:var(--y);background:transparent;border-radius:999px;padding:7px 11px;font-weight:800;font-size:13px;white-space:nowrap}
+.pdfbtn:active{transform:scale(.96)}
+.pdfbtn:disabled{opacity:.6}
+.pad .card .pdfbtn{display:block;width:100%;margin-top:10px;padding:12px;font-size:15px;background:var(--k);border-color:var(--k)}
