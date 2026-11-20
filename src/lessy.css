@@ -409,3 +409,21 @@ button.frow{width:100%;text-align:left;cursor:pointer}
 .sidenav .dadd{display:flex;align-items:center;gap:12px;padding:9px 10px;font-size:14px;border-width:1.5px;border-radius:12px}
 .kvedit{display:flex;flex-direction:column;align-items:flex-end;text-align:right}
 .kvedit span{font-size:12px;font-weight:800;text-decoration:underline;opacity:.8}
+
+/* Création d'un compte client en deux étapes : boutiques à cocher. */
+.steps{display:flex;align-items:center;justify-content:center;gap:8px;margin:-4px 0 12px}
+.steps span{width:28px;height:28px;border-radius:999px;display:inline-flex;align-items:center;justify-content:center;font-weight:900;font-size:14px;border:2px solid var(--k);color:var(--k)}
+.steps span.on{background:var(--k);color:var(--y)}
+.steps span.done{background:var(--k);color:var(--y);opacity:.55}
+.steps i{width:34px;height:2px;background:var(--k);opacity:.4}
+.pickn{font-style:normal;float:right;font-size:12px;font-weight:800;opacity:.75}
+.shoppick{width:100%;max-width:300px;display:flex;flex-direction:column;gap:8px;max-height:46vh;overflow-y:auto;margin:2px auto 4px;padding:2px}
+.shoppick .pick{display:flex;align-items:center;gap:12px;width:100%;padding:11px 12px;border:2px solid var(--k);border-radius:14px;background:#FFF3D0;text-align:left;color:var(--k);transition:transform .12s}
+.shoppick .pick:active{transform:scale(.98)}
+.shoppick .pick.on{background:var(--k);color:var(--y)}
+.shoppick .box{flex:none;width:24px;height:24px;border-radius:8px;border:2px solid currentColor;display:inline-flex;align-items:center;justify-content:center;font-weight:900;font-size:15px}
+.shoppick .pick.on .box{background:var(--y);color:var(--k);border-color:var(--y)}
+.shoppick .pn{display:flex;flex-direction:column;min-width:0}
+.shoppick .pn b{font-size:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.shoppick .pn small{font-size:12px;opacity:.75}
+.linkbtn{text-decoration:underline;font-weight:800}

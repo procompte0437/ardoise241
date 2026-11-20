@@ -167,9 +167,15 @@ async function saveAccount(account) {
   await db.meta.set('clockOffset', state.clockOffset)
 }
 
-export async function register({ phone, name, code, confirm, role = 'merchant' }) {
-  const data = await http('/api/app/register', { method: 'POST', json: { phone, name, code, code_confirmation: confirm, role, device: deviceName() } })
+export async function register({ phone, name, code, confirm, role = 'merchant', shops = [] }) {
+  const data = await http('/api/app/register', { method: 'POST', json: { phone, name, code, code_confirmation: confirm, role, shops, device: deviceName() } })
   await startSession(data)
+}
+
+/** Boutiques proposées pendant la création d'un compte client (avant toute connexion). */
+export async function shopDirectory() {
+  const data = await http('/api/app/shops/directory')
+  return data.shops || []
 }
 
 export async function login({ phone, code }) {

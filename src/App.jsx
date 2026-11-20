@@ -185,21 +185,43 @@ function Welcome() {
   const [confirm, setConfirm] = useState('')
   const [err, setErr] = useState('')
   const [busy, setBusy] = useState(false)
+  const [step, setStep] = useState(1) // client : 1 = numéro et code, 2 = nom et boutiques
+  const [shops, setShops] = useState(null) // liste des boutiques (null = en chargement)
+  const [picked, setPicked] = useState([])
+  const [q, setQ] = useState('')
+
+  function checkStep1() {
+    if (String(phone).replace(/\D/g, '').length < 8) return 'Entrez votre numéro de téléphone.'
+    if (!/^\d{4,6}$/.test(code)) return 'Le code doit avoir 4 à 6 chiffres.'
+    if (code !== confirm) return 'Les deux codes ne sont pas identiques.'
+    return ''
+  }
+
+  async function nextStep() {
+    const e = checkStep1()
+    setErr(e)
+    if (e) return
+    setStep(2)
+    if (shops === null || shops.error) {
+      setShops(null)
+      try { setShops(await store.shopDirectory()) } catch (x) { setShops({ error: x.message }) }
+    }
+  }
 
   async function go() {
     setErr('')
     if (mode === 'register') {
-      if (!/^\d{4,6}$/.test(code)) return setErr('Le code doit avoir 4 à 6 chiffres.')
-      if (code !== confirm) return setErr('Les deux codes ne sont pas identiques.')
+      const e = checkStep1()
+      if (e) { setStep(1); return setErr(e) }
+      if (role === 'customer' && !name.trim()) return setErr('Entrez votre nom : les boutiques le verront sur vos commandes.')
     }
     setBusy(true)
     try {
-      if (mode === 'register') await store.register({ phone, name, code, confirm, role })
+      if (mode === 'register') await store.register({ phone, name, code, confirm, role, shops: role === 'customer' ? picked : [] })
       else await store.login({ phone: saved || phone, code })
     } catch (e) {
       setErr(e.message)
-      setCode('')
-      setConfirm('')
+      if (!(mode === 'register' && role === 'customer')) { setCode(''); setConfirm('') }
     } finally {
       setBusy(false)
     }
@@ -207,11 +229,55 @@ function Welcome() {
 
   const reg = mode === 'register'
   const codeOnly = !reg && !!saved
+
+  // Création d'un compte client, étape 2 : le nom puis les boutiques à cocher.
+  if (reg && role === 'customer' && step === 2) {
+    const list = Array.isArray(shops) ? shops : []
+    const needle = q.trim().toLowerCase()
+    const shown = needle ? list.filter((x) => x.name.toLowerCase().includes(needle)) : list
+    const toggle = (id) => setPicked((p) => (p.includes(id) ? p.filter((x) => x !== id) : [...p, id]))
+    return (
+      <div className="lockscreen form">
+        <Brand />
+        <div className="appname">Lessy aimé Rodrigue</div>
+        <h1>Créer mon compte</h1>
+        <div className="steps"><span className="done">1</span><i /><span className="on">2</span></div>
+        <p>Dites-nous votre nom, puis cochez les boutiques où vous achetez.</p>
+        <label className="lbl">Votre nom</label>
+        <input className="field" type="text" maxLength={60} autoComplete="name" placeholder="Ex : Aimée Ndong" value={name} onChange={(e) => setName(e.target.value)} />
+        <label className="lbl">Vos boutiques {picked.length > 0 && <em className="pickn">{picked.length} cochée(s)</em>}</label>
+        {list.length > 6 && <input className="field" type="search" placeholder="Rechercher une boutique" value={q} onChange={(e) => setQ(e.target.value)} />}
+        <div className="shoppick">
+          {shops === null && <p className="hint">Chargement des boutiques…</p>}
+          {shops?.error && (
+            <p className="hint">{shops.error} <button type="button" className="linkbtn" onClick={nextStep}>Réessayer</button></p>
+          )}
+          {Array.isArray(shops) && shown.length === 0 && <p className="hint">{needle ? 'Aucune boutique à ce nom.' : 'Aucune boutique pour le moment.'}</p>}
+          {shown.map((x) => {
+            const on = picked.includes(x.id)
+            return (
+              <button key={x.id} type="button" role="checkbox" aria-checked={on} className={'pick' + (on ? ' on' : '')} onClick={() => toggle(x.id)}>
+                <span className="box">{on ? '✓' : ''}</span>
+                <span className="pn"><b>{x.name}</b><small>{x.articles > 0 ? x.articles + ' article(s)' : 'Catalogue à venir'} · {x.hint}</small></span>
+              </button>
+            )
+          })}
+        </div>
+        <p className="hint left">Vous pourrez ajouter ou retirer des boutiques plus tard.</p>
+        <div className="err">{err}</div>
+        <button className="btn dark" type="button" disabled={busy} onClick={go}>{busy ? 'Création…' : 'Créer mon compte'}</button>
+        <button className="btn out" type="button" disabled={busy} onClick={() => { setStep(1); setErr('') }}>‹ Retour</button>
+      </div>
+    )
+  }
+
+  const custStep1 = reg && role === 'customer'
   return (
     <div className="lockscreen form">
       <Brand />
       <div className="appname">Lessy aimé Rodrigue</div>
       <h1>{reg ? 'Créer mon compte' : 'Connexion'}</h1>
+      {custStep1 && <div className="steps"><span className="on">1</span><i /><span>2</span></div>}
       {reg && (
         <div className="roles" role="radiogroup" aria-label="Type de compte">
           <button type="button" role="radio" aria-checked={role === 'merchant'} className={role === 'merchant' ? 'on' : ''} onClick={() => setRole('merchant')}>
@@ -234,22 +300,24 @@ function Welcome() {
         <label className="lbl">Numéro de téléphone</label>
         <input className="field" type="tel" inputMode="tel" autoComplete="tel" placeholder="Ex : 077 12 34 56" value={phone} onChange={(e) => setPhone(e.target.value)} />
       </>)}
-      {reg && <>
-        <label className="lbl">{role === 'customer' ? 'Votre nom' : 'Nom du commerce'}</label>
-        <input className="field" type="text" maxLength={60} placeholder={role === 'customer' ? 'Ex : Aimée Ndong' : 'Ex : Chez Lessy'} value={name} onChange={(e) => setName(e.target.value)} />
-        {role === 'merchant' && <p className="hint left">Vos clients trouveront votre boutique par ce nom.</p>}
+      {reg && role === 'merchant' && <>
+        <label className="lbl">Nom du commerce</label>
+        <input className="field" type="text" maxLength={60} placeholder="Ex : Chez Lessy" value={name} onChange={(e) => setName(e.target.value)} />
+        <p className="hint left">Vos clients trouveront votre boutique par ce nom.</p>
       </>}
       <label className="lbl">{reg ? 'Code d\'accès (4 à 6 chiffres)' : 'Code d\'accès'}</label>
       <Secret autoFocus={codeOnly && finePointer()} inputMode="numeric" maxLength={6} placeholder="••••" value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, ''))} onKeyDown={(e) => { if (e.key === 'Enter' && !reg) go() }} />
       {reg && <>
         <label className="lbl">Confirmer le code</label>
-        <Secret inputMode="numeric" maxLength={6} placeholder="••••" value={confirm} onChange={(e) => setConfirm(e.target.value.replace(/\D/g, ''))} onKeyDown={(e) => { if (e.key === 'Enter') go() }} />
+        <Secret inputMode="numeric" maxLength={6} placeholder="••••" value={confirm} onChange={(e) => setConfirm(e.target.value.replace(/\D/g, ''))} onKeyDown={(e) => { if (e.key === 'Enter') { if (custStep1) nextStep(); else go() } }} />
       </>}
       <div className="err">{err}</div>
-      <button className="btn dark" type="button" disabled={busy} onClick={go}>{busy ? (reg ? 'Création…' : 'Restauration…') : (reg ? 'Créer mon compte' : 'Se connecter')}</button>
+      {custStep1
+        ? <button className="btn dark" type="button" onClick={nextStep}>Continuer ›</button>
+        : <button className="btn dark" type="button" disabled={busy} onClick={go}>{busy ? (reg ? 'Création…' : 'Restauration…') : (reg ? 'Créer mon compte' : 'Se connecter')}</button>}
       <div className="switch">
         <span>{reg ? 'Vous avez déjà un compte ?' : 'Pas encore de compte ?'}</span>
-        <button className="btn out" type="button" onClick={() => { setMode(reg ? 'login' : 'register'); setErr(''); setCode(''); setConfirm('') }}>{reg ? 'Se connecter' : 'Créer mon compte'}</button>
+        <button className="btn out" type="button" onClick={() => { setMode(reg ? 'login' : 'register'); setStep(1); setErr(''); setCode(''); setConfirm('') }}>{reg ? 'Se connecter' : 'Créer mon compte'}</button>
       </div>
       {!navigator.onLine && <p className="hint">La première connexion demande internet. Ensuite, l'application marche hors ligne.</p>}
     </div>
