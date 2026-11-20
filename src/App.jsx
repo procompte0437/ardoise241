@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import * as store from './store'
 import { App as NativeApp } from '@capacitor/app'
+import Customer from './Client.jsx'
+import { Drawer, MenuButton, OrdersView, ClientsView, ClientView, MessagesView } from './Shop.jsx'
 
-const fmt = (n) => Number(n || 0).toLocaleString('fr-FR') + ' F'
-const hour = (t) => new Date(t).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })
+export const fmt = (n) => Number(n || 0).toLocaleString('fr-FR') + ' F'
+export const hour = (t) => new Date(t).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })
 const dayKey = (t) => { const d = new Date(t); return d.getFullYear() + '-' + d.getMonth() + '-' + d.getDate() }
-function dayLabel(t) {
+export function dayLabel(t) {
   const d = new Date(t)
   const today = new Date()
   const yesterday = new Date(Date.now() - 86400000)
@@ -42,13 +44,18 @@ export function handleBack() {
 }
 if (import.meta.env.DEV) window.__back = handleBack // pour les tests
 
-function Sheet({ dialog, onClose, children }) {
+/** Le bouton retour du téléphone ferme d'abord cette fenêtre (ou ce menu). */
+export function useBackClose(onClose) {
   const closeRef = useRef(onClose)
   closeRef.current = onClose
   useEffect(() => {
     openSheets.push(closeRef)
     return () => { const i = openSheets.indexOf(closeRef); if (i >= 0) openSheets.splice(i, 1) }
   }, [])
+}
+
+export function Sheet({ dialog, onClose, children }) {
+  useBackClose(onClose)
   // Sur téléphone, toucher un champ ouvre le clavier : la fenêtre remonte et le
   // « clic » qui suit peut tomber sur le fond. On ne ferme donc que si le toucher
   // a commencé ET fini sur le fond, jamais quand il a commencé dans la fenêtre.
@@ -170,6 +177,7 @@ function Brand() {
 
 function Welcome() {
   const [mode, setMode] = useState('login') // l'appli s'ouvre sur la connexion
+  const [role, setRole] = useState('merchant') // à la création : commerçant ou client
   const [saved, setSaved] = useState(() => store.knownPhone()) // numéro déjà connu sur ce téléphone
   const [phone, setPhone] = useState('')
   const [name, setName] = useState('')
@@ -186,7 +194,7 @@ function Welcome() {
     }
     setBusy(true)
     try {
-      if (mode === 'register') await store.register({ phone, name, code, confirm })
+      if (mode === 'register') await store.register({ phone, name, code, confirm, role })
       else await store.login({ phone: saved || phone, code })
     } catch (e) {
       setErr(e.message)
@@ -204,6 +212,16 @@ function Welcome() {
       <Brand />
       <div className="appname">Lessy aimé Rodrigue</div>
       <h1>{reg ? 'Créer mon compte' : 'Connexion'}</h1>
+      {reg && (
+        <div className="roles" role="radiogroup" aria-label="Type de compte">
+          <button type="button" role="radio" aria-checked={role === 'merchant'} className={role === 'merchant' ? 'on' : ''} onClick={() => setRole('merchant')}>
+            <span>🏪</span><b>Je suis commerçant</b><small>Calculatrice, bons, commandes</small>
+          </button>
+          <button type="button" role="radio" aria-checked={role === 'customer'} className={role === 'customer' ? 'on' : ''} onClick={() => setRole('customer')}>
+            <span>🛍️</span><b>Je suis client</b><small>Commander, suivre mes bons</small>
+          </button>
+        </div>
+      )}
       <p>{reg
         ? 'Votre numéro sert d\'identifiant. Choisissez un code d\'accès et confirmez-le.'
         : codeOnly ? 'Entrez votre code d\'accès.' : "Connectez-vous une seule fois : ensuite l'application s'ouvre directement, même sans internet."}</p>
@@ -217,8 +235,9 @@ function Welcome() {
         <input className="field" type="tel" inputMode="tel" autoComplete="tel" placeholder="Ex : 077 12 34 56" value={phone} onChange={(e) => setPhone(e.target.value)} />
       </>)}
       {reg && <>
-        <label className="lbl">Nom du commerce (facultatif)</label>
-        <input className="field" type="text" maxLength={60} placeholder="Ex : Chez Lessy" value={name} onChange={(e) => setName(e.target.value)} />
+        <label className="lbl">{role === 'customer' ? 'Votre nom' : 'Nom du commerce'}</label>
+        <input className="field" type="text" maxLength={60} placeholder={role === 'customer' ? 'Ex : Aimée Ndong' : 'Ex : Chez Lessy'} value={name} onChange={(e) => setName(e.target.value)} />
+        {role === 'merchant' && <p className="hint left">Vos clients trouveront votre boutique par ce nom.</p>}
       </>}
       <label className="lbl">{reg ? 'Code d\'accès (4 à 6 chiffres)' : 'Code d\'accès'}</label>
       <Secret autoFocus={codeOnly && finePointer()} inputMode="numeric" maxLength={6} placeholder="••••" value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, ''))} onKeyDown={(e) => { if (e.key === 'Enter' && !reg) go() }} />
@@ -297,6 +316,7 @@ export default function App() {
   if (!s.token) return <Welcome />
   if (s.account?.needsLogin) return <Relogin s={s} />
   if (!store.access().ok) return <Blocked s={s} />
+  if (s.account?.role === 'customer') return <Customer s={s} />
   return <Main s={s} />
 }
 
@@ -308,11 +328,43 @@ function Main({ s }) {
   const [q, setQ] = useState('')
   const [admin, setAdmin] = useState(false)
   const [modal, setModal] = useState(null)
+  const [drawer, setDrawer] = useState(false)
+  const [clientId, setClientId] = useState(null) // fiche client ouverte (Mes clients)
+  const [bilanBack, setBilanBack] = useState('cahier')
   const [toastMsg, setToastMsg] = useState('')
   const [toastOn, setToastOn] = useState(false)
   const toastTimer = useRef(null)
 
   useEffect(() => { window.scrollTo(0, 0) }, [view])
+  useEffect(() => {
+    const t = setInterval(() => store.pollCommerce(), 20000)
+    return () => clearInterval(t)
+  }, [])
+  useEffect(() => {
+    if (s.notice) { toast(s.notice.text); store.clearNotice() }
+  }, [s.notice]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const newOrders = (s.commerce?.orders || []).filter((o) => o.status === 'envoyee').length
+  const doingOrders = (s.commerce?.orders || []).filter((o) => o.status === 'acceptee' || o.status === 'prete').length
+  const prospects = (s.commerce?.customers || []).filter((c) => c.status === 'prospect').length
+  const menuItems = [
+    { key: 'home', icon: '🏠', label: 'Accueil' },
+    { key: 'calc', icon: '🧮', label: 'Calculatrice' },
+    { key: 'cahier', icon: '📒', label: 'Cahier Bon' },
+    { key: 'sep1', sep: true, label: 'Boutique en ligne' },
+    { key: 'orders', icon: '🛍️', label: 'Commandes', badge: newOrders },
+    { key: 'clients', icon: '👥', label: 'Mes clients', badge: prospects },
+    { key: 'messages', icon: '📣', label: 'Messages et promos' },
+    { key: 'sep2', sep: true, label: 'Gestion' },
+    { key: 'inventaire', icon: '📊', label: 'Fiche d\'inventaire' },
+    { key: 'settings', icon: '⚙️', label: 'Réglages' },
+  ]
+  async function pickMenu(key) {
+    if (key === 'calc') return openCalc(null)
+    if (key === 'cahier') setQ('')
+    if (key === 'settings') { if (await needAdmin()) setView('settings'); return }
+    setView(key)
+  }
 
   function toast(message) {
     setToastMsg(message)
@@ -393,8 +445,9 @@ function Main({ s }) {
     return res
   }
 
-  function openBilan(uid) {
+  function openBilan(uid, from = 'cahier') {
     setCur(uid)
+    setBilanBack(from)
     setModal(null)
     setView('bilan')
   }
@@ -409,6 +462,7 @@ function Main({ s }) {
     body = (
       <>
         <header className="top">
+          <MenuButton onClick={() => setDrawer(true)} badge={newOrders} />
           <div className="grow">
             <h1>Ardoise241</h1>
             <p>{s.account?.name || s.account?.phone}{days <= 15 ? ' · essai : ' + days + ' j restants' : ''}</p>
@@ -426,6 +480,11 @@ function Main({ s }) {
             <span className="ico">📒</span>
             <span className="txt"><b>Cahier Bon</b><small>{owing.length ? owing.length + ' client(s) · ' + fmt(owing.reduce((a, b) => a + b, 0)) + ' en bon' : 'Aucun bon en cours'}</small></span>
             <span className="chev">›</span>
+          </button>
+          <button className={newOrders ? 'hero small hot' : 'hero small'} type="button" onClick={() => setView('orders')}>
+            <span className="ico">🛍️</span>
+            <span className="txt"><b>Commandes</b><small>{newOrders ? newOrders + ' nouvelle(s) commande(s) !' : doingOrders ? doingOrders + ' en préparation' : 'Les commandes de vos clients arrivent ici'}</small></span>
+            {newOrders > 0 ? <span className="hbadge">{newOrders}</span> : <span className="chev">›</span>}
           </button>
           <button className="hero small" type="button" onClick={() => setView('inventaire')}>
             <span className="ico"><InventoryIcon /></span>
@@ -507,7 +566,7 @@ function Main({ s }) {
     body = (
       <>
         <header className="top">
-          <button className="back" type="button" onClick={() => setView('cahier')} aria-label="Retour">‹</button>
+          <button className="back" type="button" onClick={() => setView(bilanBack)} aria-label="Retour">‹</button>
           <div className="grow"><h1>{person.name}</h1><p>Bilan</p></div>
           {lockBtn}
         </header>
@@ -526,6 +585,14 @@ function Main({ s }) {
         </div>
       </>
     )
+  } else if (view === 'orders') {
+    body = <OrdersView s={s} back={() => setView('home')} toast={toast} />
+  } else if (view === 'clients') {
+    body = <ClientsView s={s} back={() => setView('home')} open={(id) => { setClientId(id); setView('client') }} />
+  } else if (view === 'client') {
+    body = <ClientView s={s} id={clientId} back={() => setView('clients')} openBons={(uid) => openBilan(uid, 'client')} />
+  } else if (view === 'messages') {
+    body = <MessagesView s={s} back={() => setView('home')} toast={toast} />
   } else if (view === 'inventaire') {
     body = <Inventory s={s} back={() => setView('home')} />
   } else if (view === 'settings') {
@@ -540,6 +607,10 @@ function Main({ s }) {
   return (
     <>
       {body}
+      {drawer && (
+        <Drawer title="Ardoise241" subtitle={(s.account?.name || s.account?.phone) + ' · commerçant'} items={menuItems}
+          current={view === 'client' ? 'clients' : view === 'bilan' ? 'cahier' : view} onPick={pickMenu} onClose={() => setDrawer(false)} />
+      )}
       {modal?.type === 'calcBilan' && (() => {
         const who = calcFor ? s.people.find((p) => p.uid === calcFor) : null
         const lines = s.foods.filter((f) => counts[f.uid] > 0)
@@ -622,7 +693,7 @@ function NameList({ people, debts, q, setQ, onPick, onRename, admin, compact }) 
       <div className={compact ? 'names compact' : 'names'}>
         {visible.map((p) => (
           <div className="item" role="button" tabIndex={0} key={p.uid} onClick={() => onPick(p)} onKeyDown={(e) => { if (e.key === 'Enter') onPick(p) }}>
-            <span className="num">{p.position}</span>
+            <span className="num">{p.position >= 100000 ? '★' : p.position}</span>
             <span className="t">{p.name}</span>
             {debts[p.uid] > 0 && <span className="due">{fmt(debts[p.uid])}</span>}
             {onRename && <button className={admin ? 'pen' : 'pen dim'} type="button" aria-label="Modifier le nom" onClick={(e) => { e.stopPropagation(); onRename(p) }}>✎</button>}
@@ -658,14 +729,14 @@ function ConfirmBon({ person, total, debt, onClose, onSave }) {
   )
 }
 
-const when = (t) => new Date(t).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' }) + ' · ' + hour(t)
+export const when = (t) => new Date(t).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' }) + ' · ' + hour(t)
 
 /**
  * Bilan d'un client, bon par bon : la date une fois par jour, l'heure sur chaque bon,
  * les articles en colonnes, puis l'état du bon (soldé, avance, non payé) et
  * l'historique de ses paiements avec date et heure.
  */
-function Bilan({ entries, onPay }) {
+export function Bilan({ entries, onPay }) {
   const [filter, setFilter] = useState('all')
   const bons = useMemo(() => store.ledger(entries), [entries])
   if (!bons.length) return <div className="empty">Aucun bon pour l'instant.</div>
@@ -711,7 +782,7 @@ function Bilan({ entries, onPay }) {
                     {b.status === 'paid' && <span className="tag ok">✓ Soldé</span>}
                     {b.status === 'partial' && <span className="tag part">Avance {fmt(b.paid)} · reste {fmt(b.remaining)}</span>}
                     {b.status === 'open' && <span className="tag no">Non payé</span>}
-                    {b.status !== 'paid' && <button className="btn dark sm" type="button" onClick={() => onPay(b)}>Payer ce bon</button>}
+                    {b.status !== 'paid' && onPay && <button className="btn dark sm" type="button" onClick={() => onPay(b)}>Payer ce bon</button>}
                   </div>
                   {b.payments.length > 0 && (
                     <ul className="pays">
@@ -965,7 +1036,7 @@ function EditFood({ food, img, onClose, toast }) {
   )
 }
 
-function ChangeCode({ onClose, toast }) {
+export function ChangeCode({ onClose, toast }) {
   const [current, setCurrent] = useState('')
   const [code, setCode] = useState('')
   const [confirm, setConfirm] = useState('')

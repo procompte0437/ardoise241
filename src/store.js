@@ -21,6 +21,9 @@ const state = {
   foods: [],
   entries: [],
   images: {}, // uid -> object URL
+  commerce: null, // espace boutique / client (dernier état reçu, gardé hors ligne)
+  outbox: [], // actions en attente d'envoi (commandes, messages…), comme WhatsApp
+  notice: null, // { id, text } : nouvelle commande ou nouveau message à signaler
   sync: { running: false, pending: 0, lastAt: null, error: '', online: navigator.onLine },
 }
 
@@ -83,6 +86,8 @@ export async function boot() {
   state.token = (await db.meta.get('token')) || null
   state.account = (await db.meta.get('account')) || null
   state.clockOffset = (await db.meta.get('clockOffset')) || 0
+  state.commerce = (await db.meta.get('commerce')) || null
+  state.outbox = (await db.meta.get('outbox')) || []
   if (state.token) await reload()
   state.ready = true
   emit()
@@ -138,7 +143,10 @@ function rememberPhone(phone) {
 async function startSession(data) {
   rememberPhone(data.account?.phone)
   await db.clearAll()
-  await seedDefaults()
+  // Le cahier (noms, images) ne sert qu'aux commerçants.
+  if (data.account?.role !== 'customer') await seedDefaults()
+  state.commerce = null
+  state.outbox = []
   state.token = data.token
   await db.meta.set('token', data.token)
   await db.meta.set('cursor', 0)
@@ -156,8 +164,8 @@ async function saveAccount(account) {
   await db.meta.set('clockOffset', state.clockOffset)
 }
 
-export async function register({ phone, name, code, confirm }) {
-  const data = await http('/api/app/register', { method: 'POST', json: { phone, name, code, code_confirmation: confirm, device: deviceName() } })
+export async function register({ phone, name, code, confirm, role = 'merchant' }) {
+  const data = await http('/api/app/register', { method: 'POST', json: { phone, name, code, code_confirmation: confirm, role, device: deviceName() } })
   await startSession(data)
 }
 
@@ -181,7 +189,7 @@ export async function logout() {
   stopBackgroundSync()
   await db.clearAll()
   for (const img of Object.values(state.images)) URL.revokeObjectURL(img.url)
-  Object.assign(state, { token: null, account: null, people: [], foods: [], entries: [], images: {} })
+  Object.assign(state, { token: null, account: null, people: [], foods: [], entries: [], images: {}, commerce: null, outbox: [], notice: null })
   state.sync.pending = 0
   emit()
 }
@@ -194,6 +202,7 @@ export function access() {
   const a = state.account
   if (!a) return { ok: false, reason: 'none' }
   if (a.blocked) return { ok: false, reason: 'blocked' }
+  if (a.role === 'customer') return { ok: true, daysLeft: Infinity } // espace client gratuit
   if (now() >= a.endsAt) return { ok: false, reason: 'expired' }
   return { ok: true, daysLeft: Math.max(0, Math.ceil((a.endsAt - now()) / 86400000)) }
 }
@@ -512,6 +521,12 @@ export async function sync() {
   state.sync.error = ''
   emit()
   try {
+    if (isCustomer()) {
+      await commerceSync()
+      state.sync.lastAt = Date.now()
+      state.sync.online = true
+      return
+    }
     const [people, foods, entries] = await Promise.all([db.all('people'), db.all('foods'), db.all('entries')])
     const out = {
       since: (await db.meta.get('cursor')) || 0,
@@ -537,6 +552,7 @@ export async function sync() {
 
     await uploadImages()
     await downloadImages(toDownload)
+    await commerceSync()
 
     state.sync.lastAt = Date.now()
     await db.meta.set('lastSync', state.sync.lastAt)
@@ -625,4 +641,242 @@ async function downloadImages(uids) {
     await db.put('images', blob, id)
     await db.put('foods', { ...cur, imgHave: cur.img })
   }
+}
+
+// ---------------------------------------------------------------- espace boutique / client
+//
+// Les commandes, changements d'état et messages partent d'une file d'attente
+// (outbox) gardée sur le téléphone : sans réseau, ils attendent et partent tout
+// seuls à la connexion suivante. L'état reçu (boutiques, catalogues, bons,
+// commandes, messages) est gardé pour être consulté hors ligne.
+
+export function isCustomer() { return state.account?.role === 'customer' }
+
+export function imageUrl(shopId, food) {
+  return food.img ? BASE + '/api/app/shops/' + shopId + '/foods/' + encodeURIComponent(food.uid) + '/image?h=' + food.img : null
+}
+
+async function saveOutbox() {
+  await db.meta.set('outbox', state.outbox)
+}
+
+async function saveCommerce() {
+  await db.meta.set('commerce', state.commerce)
+}
+
+/** Met l'action en file et tente l'envoi ; renvoie true si elle est partie (4 s max d'attente). */
+async function queue(action) {
+  const id = uid('q')
+  state.outbox = [...state.outbox, { id, at: Date.now(), ...action }]
+  await saveOutbox()
+  emit()
+  const sent = flushOutbox().then(() => {
+    if (!state.outbox.length) refreshCommerce().catch(() => {})
+    return !state.outbox.some((a) => a.id === id)
+  })
+  return Promise.race([sent, new Promise((r) => setTimeout(() => r(false), 4000))])
+}
+
+let flushing = false
+async function flushOutbox() {
+  if (flushing || !state.token) return
+  flushing = true
+  try {
+    while (state.outbox.length) {
+      const a = state.outbox[0]
+      try {
+        await http(a.path, { method: a.method || 'POST', json: a.json })
+        state.sync.online = true
+      } catch (e) {
+        if (e.status === 0) { state.sync.online = false; emit() }
+        if (e.status === 0 || e.status >= 500 || e.status === 401) break // réseau : on réessaiera
+        state.notice = { id: uid('n'), text: e.message, error: true } // refusé : on l'abandonne
+      }
+      state.outbox = state.outbox.slice(1)
+      await saveOutbox()
+      emit()
+    }
+  } finally {
+    flushing = false
+  }
+}
+
+let lastCommerceFetch = 0
+async function refreshCommerce() {
+  const data = await http('/api/app/commerce')
+  lastCommerceFetch = Date.now()
+  announce(state.commerce, data)
+  state.commerce = data
+  await saveCommerce()
+  emit()
+}
+
+async function commerceSync() {
+  await flushOutbox()
+  if (state.outbox.length) return // encore hors ligne
+  await refreshCommerce()
+}
+
+/** Synchro rapide de l'espace boutique seul (appelée toutes les 20 s quand l'appli est ouverte). */
+export async function pollCommerce() {
+  if (!state.token || state.sync.running || Date.now() - lastCommerceFetch < 15000 || document.visibilityState !== 'visible') return
+  try { await commerceSync() } catch { /* hors ligne */ }
+}
+
+// Nouvelles commandes (commerçant) et nouveaux messages (client) : un bandeau
+// dans l'appli, et une notification du téléphone dans l'application Android.
+function announce(before, after) {
+  if (!before || before.role !== after.role) return // premier chargement : rien de « nouveau »
+  const texts = []
+  if (after.role === 'merchant') {
+    const known = new Set((before.orders || []).map((o) => o.id))
+    for (const o of after.orders || []) if (!known.has(o.id) && o.status === 'envoyee') texts.push(['Nouvelle commande', o.customer?.name + ' · ' + o.total.toLocaleString('fr-FR') + ' F'])
+  } else {
+    const known = new Set((before.messages || []).map((m) => m.id))
+    for (const m of after.messages || []) if (!known.has(m.id)) texts.push([m.shop?.name || 'Message', m.title])
+    const prev = Object.fromEntries((before.orders || []).map((o) => [o.uid, o.status]))
+    for (const o of after.orders || []) if (prev[o.uid] && prev[o.uid] !== o.status) texts.push([o.shop?.name || 'Commande', 'Votre commande est ' + (ORDER_STATUS[o.status] || '').toLowerCase()])
+  }
+  if (!texts.length) return
+  state.notice = { id: uid('n'), text: texts.map((t) => t.join(' : ')).join(' · ') }
+  notifyPhone(texts)
+}
+
+async function notifyPhone(texts) {
+  if (!window.Capacitor?.isNativePlatform?.()) return
+  try {
+    const { LocalNotifications } = await import('@capacitor/local-notifications')
+    const perm = await LocalNotifications.requestPermissions()
+    if (perm.display !== 'granted') return
+    await LocalNotifications.schedule({
+      notifications: texts.slice(0, 5).map(([title, body], i) => ({ id: (Date.now() % 100000000) + i, title, body })),
+    })
+  } catch { /* notification impossible : le bandeau suffit */ }
+}
+
+export function clearNotice() {
+  state.notice = null
+  emit()
+}
+
+export const ORDER_STATUS = {
+  attente: "En attente d'envoi",
+  envoyee: 'Envoyée',
+  acceptee: 'Acceptée',
+  prete: 'Prête',
+  livree: 'Livrée',
+  refusee: 'Refusée',
+  annulee: 'Annulée',
+}
+
+// ---- côté client
+
+export async function searchShops(q) {
+  const data = await http('/api/app/shops?q=' + encodeURIComponent(q || ''))
+  return data.shops
+}
+
+export async function followShop(shop) {
+  await http('/api/app/shops/' + shop.id + '/follow', { method: 'POST' }) // en ligne : on vient de chercher
+  await refreshCommerce()
+}
+
+export async function unfollowShop(shopId) {
+  await http('/api/app/shops/' + shopId + '/follow', { method: 'DELETE' })
+  await refreshCommerce()
+}
+
+/** Commande : enregistrée tout de suite sur le téléphone, envoyée dès qu'il y a du réseau. */
+export async function placeOrder(shop, counts, note) {
+  const items = []
+  let total = 0
+  for (const f of shop.catalog) {
+    const q = counts[f.uid] || 0
+    if (q > 0) { items.push({ uid: f.uid, n: f.name, p: f.price, q }); total += f.price * q }
+  }
+  if (!items.length) throw new Error('Choisissez au moins un article.')
+  const order = { uid: uid('o'), shop: shop.id, items: items.map(({ uid: u, q }) => ({ uid: u, q })), note: note || null, at: now() }
+  const sent = await queue({ kind: 'order', path: '/api/app/orders', json: order, view: { items, total, shopName: shop.name } })
+  return { total, sent }
+}
+
+export async function cancelOrder(orderUid) {
+  const pending = state.outbox.find((a) => a.kind === 'order' && a.json.uid === orderUid)
+  if (pending) { // pas encore partie : on la retire simplement
+    state.outbox = state.outbox.filter((a) => a !== pending)
+    await saveOutbox()
+    emit()
+    return
+  }
+  patchOrder((o) => o.uid === orderUid, { status: 'annulee' })
+  await queue({ kind: 'cancel', path: '/api/app/orders/' + encodeURIComponent(orderUid) + '/cancel' })
+}
+
+/** Commandes du client, celles en attente d'envoi en tête. */
+export function customerOrders() {
+  const sent = state.commerce?.orders || []
+  const known = new Set(sent.map((o) => o.uid))
+  const waiting = state.outbox.filter((a) => a.kind === 'order' && !known.has(a.json.uid))
+    .map((a) => ({ uid: a.json.uid, items: a.view.items, total: a.view.total, note: a.json.note, status: 'attente', at: a.json.at, shop: { id: a.json.shop, name: a.view.shopName } }))
+  return [...waiting.reverse(), ...sent]
+}
+
+export async function markMessagesRead(ids) {
+  if (!ids.length || !state.commerce) return
+  state.commerce = { ...state.commerce, messages: state.commerce.messages.map((m) => (ids.includes(m.id) ? { ...m, read: true } : m)) }
+  await saveCommerce()
+  await queue({ kind: 'read', path: '/api/app/messages/read', json: { ids } })
+}
+
+// ---- côté commerçant
+
+function patchOrder(match, values) {
+  if (!state.commerce) return
+  state.commerce = { ...state.commerce, orders: state.commerce.orders.map((o) => (match(o) ? { ...o, ...values } : o)) }
+  saveCommerce()
+  emit()
+}
+
+/** Fiche du client dans le cahier (créée par le serveur ; ici si on est encore hors ligne). */
+async function ensurePerson(customer) {
+  if (state.people.some((p) => p.uid === customer.person)) return
+  const at = Date.now()
+  await db.put('people', { uid: customer.person, name: (customer.name || 'Client').slice(0, 40), position: 100000 + customer.id, updatedAt: at, deleted: false, dirty: true })
+  await reload()
+}
+
+export async function setOrderStatus(order, status) {
+  patchOrder((o) => o.id === order.id, { status, statusAt: now() })
+  await queue({ kind: 'status', path: '/api/app/orders/' + order.id + '/status', json: { status } })
+}
+
+/**
+ * Commande livrée : la vente entre dans le cahier comme une vente faite à la
+ * calculatrice (encaissée, ou en bon au nom du client avec une avance éventuelle).
+ */
+export async function deliverOrder(order, mode, paid = 0) {
+  const at = Date.now()
+  const items = order.items.map((i) => ({ n: i.n, q: i.q, p: i.p }))
+  const person = mode === 'bon' ? order.customer.person : CASH
+  if (mode === 'bon') await ensurePerson(order.customer)
+  const rows = [{ uid: uid('e'), person, amount: order.total, pay: false, label: 'Commande', items, at, updatedAt: at, deleted: false, dirty: true }]
+  const cash = mode === 'bon' ? Math.min(order.total, Math.max(0, Math.round(Number(paid) || 0))) : 0
+  if (cash > 0) rows.push({ uid: uid('e'), person, amount: cash, pay: true, label: 'Payé à la livraison', ref: rows[0].uid, items: [], at: at + 1, updatedAt: at, deleted: false, dirty: true })
+  await db.putMany('entries', rows)
+  await reload()
+  patchOrder((o) => o.id === order.id, { status: 'livree', mode, statusAt: now() })
+  await queue({ kind: 'status', path: '/api/app/orders/' + order.id + '/status', json: { status: 'livree', mode } })
+  scheduleSync()
+}
+
+/** Message ou promotion aux clients cochés (part dès qu'il y a du réseau). */
+export async function sendShopMessage({ kind, title, body, to }) {
+  if (!to.length) throw new Error('Cochez au moins un client.')
+  if (!title.trim() && !body.trim()) throw new Error('Écrivez votre message.')
+  const msg = { uid: uid('m'), kind, title: title.trim(), body: body.trim(), to }
+  if (state.commerce) {
+    state.commerce = { ...state.commerce, messages: [{ id: msg.uid, ...msg, at: now(), sent: to.length, read: 0, pending: true }, ...(state.commerce.messages || [])] }
+    await saveCommerce()
+  }
+  return queue({ kind: 'message', path: '/api/app/messages', json: msg })
 }
